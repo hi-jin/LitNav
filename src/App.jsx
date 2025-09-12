@@ -443,28 +443,33 @@ function PDFViewer({ filePath, page, snippet, query }) {
   const highlightTerms = useMemo(() => {
     if (!snippet) return []
     
-    // Instead of highlighting all words, create meaningful phrases from the snippet
+    // Clean and normalize the snippet for better matching
     const cleanSnippet = snippet.replace(/[^\p{L}\p{N}\s]/gu, ' ').trim()
     if (cleanSnippet.length < 10) return []
     
-    // Split into words and create 2-3 word phrases for better highlighting
-    const words = cleanSnippet.split(/\s+/).filter(w => w.length >= 3)
-    const phrases = []
-    
-    // Add individual significant words
-    words.forEach(word => {
-      if (word.length >= 4) phrases.push(word.toLowerCase())
-    })
-    
-    // Add 2-word phrases
-    for (let i = 0; i < words.length - 1; i++) {
-      if (words[i].length >= 3 && words[i + 1].length >= 3) {
-        phrases.push(`${words[i]} ${words[i + 1]}`.toLowerCase())
-      }
-    }
-    
-    return Array.from(new Set(phrases)).slice(0, 5)
+    // Only use the complete snippet for precise highlighting
+    const normalizedSnippet = cleanSnippet.replace(/\s+/g, ' ').toLowerCase()
+    return [normalizedSnippet]
   }, [snippet])
+
+  // Create a fuzzy matching function for the exact context
+  const createFuzzyMatcher = useMemo(() => {
+    if (!highlightTerms.length) return null
+    
+    const term = highlightTerms[0] // Only use the complete snippet
+    // Remove all non-letter characters for fuzzy matching
+    const sanitizedTerm = term.replace(/[^a-zA-Z가-힣]/g, '')
+    if (sanitizedTerm.length < 10) return null
+    
+    // Create a pattern that allows non-letter characters between each letter
+    // but keeps the sequence intact for more precise matching
+    const pattern = sanitizedTerm.split('').join('[^a-zA-Z가-힣]{0,3}') // Allow up to 3 non-letters between
+    try {
+      return new RegExp(`(${pattern})`, 'gi')
+    } catch {
+      return null
+    }
+  }, [highlightTerms])
 
   const highlightRegex = useMemo(() => {
     if (!highlightTerms.length) return null
@@ -474,23 +479,35 @@ function PDFViewer({ filePath, page, snippet, query }) {
 
   // Force re-render of text layer when highlight terms change (but not on scale change)
   useEffect(() => {
-    if (highlightRegex) {
+    if (createFuzzyMatcher) {
       setTextRendererKey(prev => prev + 1)
     }
-  }, [highlightRegex])
+  }, [createFuzzyMatcher])
 
   const customTextRenderer = useCallback(({ str, itemIndex }) => {
-    if (!highlightRegex || !str) return str
+    if (!str) return str
+    
     try {
-      const highlighted = str.replace(highlightRegex, (match) => {
-        return `<mark style="background-color: rgba(250, 204, 21, 0.6); color: transparent; padding: 0; border-radius: 2px;">${match}</mark>`
-      })
-      return highlighted
+      // Try fuzzy matching for multiline context
+      if (createFuzzyMatcher && createFuzzyMatcher.test(str)) {
+        return str.replace(createFuzzyMatcher, (match) => {
+          return `<mark style="background-color: rgba(250, 204, 21, 0.6); color: transparent; padding: 0; border-radius: 2px;">${match}</mark>`
+        })
+      }
+      
+      // Fallback to exact matching
+      if (highlightRegex && highlightRegex.test(str)) {
+        return str.replace(highlightRegex, (match) => {
+          return `<mark style="background-color: rgba(250, 204, 21, 0.6); color: transparent; padding: 0; border-radius: 2px;">${match}</mark>`
+        })
+      }
+      
+      return str
     } catch (error) {
       console.warn('Highlight error:', error)
       return str
     }
-  }, [highlightRegex])
+  }, [createFuzzyMatcher, highlightRegex])
 
   // Clean up when file changes or component unmounts
   const cleanupDocument = useCallback(() => {
@@ -618,12 +635,34 @@ function PDFViewer({ filePath, page, snippet, query }) {
     }
   }, [isManualZoom])
 
+  // Handle page jumping with proper timing
   useEffect(() => {
-    if (!containerRef.current || !page) return
-    const target = containerRef.current.querySelector(`[data-page-number="${page}"]`)
-    if (target?.scrollIntoView) {
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    if (!containerRef.current || !page || !numPages) return
+    
+    const scrollToPage = () => {
+      const target = containerRef.current.querySelector(`[data-page-number="${page}"]`)
+      if (target?.scrollIntoView) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        return true
+      }
+      return false
     }
+    
+    // Try immediate scroll first
+    if (scrollToPage()) return
+    
+    // If not found, wait for pages to render
+    const maxRetries = 10
+    let retries = 0
+    const retryScroll = () => {
+      if (retries >= maxRetries) return
+      if (scrollToPage()) return
+      
+      retries++
+      setTimeout(retryScroll, 200)
+    }
+    
+    setTimeout(retryScroll, 100)
   }, [page, numPages])
   
   // Reset zoom to fit-to-width when context (file or page) changes
@@ -746,26 +785,55 @@ function PDFViewer({ filePath, page, snippet, query }) {
     }
   }, [])
 
-  // Handle text layer rendering completion
+  // Handle text layer rendering completion with precise context highlighting
   const onRenderTextLayerSuccess = useCallback(() => {
-    if (!containerRef.current || !highlightRegex) return
+    if (!containerRef.current || (!createFuzzyMatcher && !highlightRegex)) return
     
-    // Apply highlighting to all text spans in the text layer
+    // Apply highlighting to text spans in the text layer
     setTimeout(() => {
       const textLayers = containerRef.current.querySelectorAll('.react-pdf__Page__textContent')
       textLayers.forEach(textLayer => {
         const spans = textLayer.querySelectorAll('span:not([data-highlighted])')
-        spans.forEach(span => {
-          if (span.textContent && highlightRegex.test(span.textContent)) {
-            span.innerHTML = span.textContent.replace(highlightRegex, (match) => {
+        
+        // Collect all text for context matching
+        const allText = Array.from(spans).map(span => span.textContent || '').join(' ').replace(/\s+/g, ' ').toLowerCase()
+        
+        // Only proceed if the complete context exists in this text layer
+        const contextExists = highlightTerms.some(term => allText.includes(term))
+        if (!contextExists) return
+        
+        spans.forEach((span, index) => {
+          let spanText = span.textContent
+          if (!spanText) return
+          
+          let highlighted = false
+          
+          // Try fuzzy matching for multiline context
+          if (createFuzzyMatcher && createFuzzyMatcher.test(spanText)) {
+            const highlightedText = spanText.replace(createFuzzyMatcher, (match) => {
               return `<mark style="background-color: rgba(250, 204, 21, 0.6); color: transparent; padding: 0; border-radius: 2px;">${match}</mark>`
             })
+            if (highlightedText !== spanText) {
+              span.innerHTML = highlightedText
+              highlighted = true
+            }
+          }
+          
+          // Fallback to exact matching
+          if (!highlighted && highlightRegex && highlightRegex.test(spanText)) {
+            span.innerHTML = spanText.replace(highlightRegex, (match) => {
+              return `<mark style="background-color: rgba(250, 204, 21, 0.6); color: transparent; padding: 0; border-radius: 2px;">${match}</mark>`
+            })
+            highlighted = true
+          }
+          
+          if (highlighted) {
             span.setAttribute('data-highlighted', 'true')
           }
         })
       })
     }, 100)
-  }, [highlightRegex])
+  }, [createFuzzyMatcher, highlightRegex, highlightTerms])
 
   return (
     <div className="pdf-viewer" style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
@@ -898,6 +966,16 @@ function PDFViewer({ filePath, page, snippet, query }) {
                 // Fallback to default
                 setActualPageWidth(600)
               }
+              
+              // Trigger page jump after document is loaded
+              if (page && page !== 1) {
+                setTimeout(() => {
+                  const target = containerRef.current?.querySelector(`[data-page-number="${page}"]`)
+                  if (target?.scrollIntoView) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                  }
+                }, 500)
+              }
             }}
             onLoadError={(err) => {
               console.error('PDF load error:', err)
@@ -975,7 +1053,7 @@ function PDFViewer({ filePath, page, snippet, query }) {
                     scale={scale || undefined}
                     renderTextLayer={true}
                     renderAnnotationLayer={false}
-                    customTextRenderer={highlightRegex ? customTextRenderer : undefined}
+                    customTextRenderer={(createFuzzyMatcher || highlightRegex) ? customTextRenderer : undefined}
                     onRenderTextLayerSuccess={onRenderTextLayerSuccess}
                     onRenderSuccess={() => {
                       // Page rendered successfully
