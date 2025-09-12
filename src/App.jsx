@@ -416,6 +416,123 @@ const pdfOptions = {
   useWorkerFetch: false
 }
 
+// Function to find text coordinates in PDF with improved coordinate transformation
+async function findTextCoordinates(pdfDocument, pageNumber, searchText) {
+  try {
+    if (!pdfDocument || !searchText) return null
+    
+    const page = await pdfDocument.getPage(pageNumber)
+    const viewport = page.getViewport({ scale: 1 })
+    const textContent = await page.getTextContent()
+    
+    // Normalize search text for comparison
+    const normalizedSearchText = searchText.replace(/\s+/g, ' ').trim().toLowerCase()
+    
+    console.log('Searching for:', normalizedSearchText)
+    
+    // Build continuous text with position mapping
+    let fullText = ''
+    const textItems = []
+    
+    textContent.items.forEach((item, index) => {
+      if (item.str && item.str.trim()) {
+        const startIndex = fullText.length
+        fullText += item.str
+        const endIndex = fullText.length
+        
+        // Use simpler coordinate transformation
+        // item.transform = [a, b, c, d, e, f] where e,f are x,y coordinates
+        const transform = item.transform
+        const x = transform[4]  // Direct x coordinate
+        const y = transform[5]  // Direct y coordinate
+        
+        // Calculate font height from transform matrix
+        const fontHeight = Math.sqrt(transform[2] * transform[2] + transform[3] * transform[3])
+        const fontWidth = Math.sqrt(transform[0] * transform[0] + transform[1] * transform[1])
+        
+        // Convert PDF coordinates to viewport coordinates
+        const viewportX = x
+        const viewportY = viewport.height - y - fontHeight // Flip Y and adjust for font height
+        
+        // Ensure coordinates are within viewport bounds
+        if (viewportX >= 0 && viewportX < viewport.width && 
+            viewportY >= 0 && viewportY < viewport.height) {
+          
+          textItems.push({
+            text: item.str,
+            startIndex,
+            endIndex,
+            x: viewportX,
+            y: viewportY,
+            width: item.width || (item.str.length * fontWidth * 0.6), // Fallback width calculation
+            height: fontHeight,
+            originalItem: item
+          })
+        }
+        
+        // Add space after each item for word separation
+        if (index < textContent.items.length - 1) {
+          fullText += ' '
+        }
+      }
+    })
+    
+    console.log('Built full text:', fullText.substring(0, 200) + '...')
+    console.log('Total text items:', textItems.length)
+    
+    // Find the search text in the full text using fuzzy matching
+    const normalizedFullText = fullText.replace(/\s+/g, ' ').toLowerCase()
+    let searchIndex = normalizedFullText.indexOf(normalizedSearchText)
+    
+    // Try fuzzy matching if exact match fails
+    if (searchIndex === -1) {
+      // Try without punctuation
+      const cleanSearchText = normalizedSearchText.replace(/[^\w가-힣\s]/g, '').trim()
+      const cleanFullText = normalizedFullText.replace(/[^\w가-힣\s]/g, '')
+      searchIndex = cleanFullText.indexOf(cleanSearchText)
+      
+      if (searchIndex === -1) {
+        console.warn('Text not found:', normalizedSearchText)
+        return null
+      }
+    }
+    
+    console.log('Found text at index:', searchIndex)
+    
+    // Find which text items contain our search text
+    const searchEndIndex = searchIndex + normalizedSearchText.length
+    const relevantItems = textItems.filter(item => 
+      item.startIndex <= searchEndIndex && item.endIndex >= searchIndex
+    )
+    
+    console.log('Relevant items:', relevantItems.length)
+    
+    if (relevantItems.length === 0) return null
+    
+    // Create individual bounding boxes for better text coverage
+    const boundingBoxes = relevantItems.map(item => ({
+      x: Math.max(0, item.x), // Ensure non-negative
+      y: Math.max(0, item.y), // Ensure non-negative  
+      width: Math.max(8, item.width), // Minimum width
+      height: Math.max(12, item.height), // Minimum height
+      text: item.text
+    }))
+    
+    console.log('Created bounding boxes:', boundingBoxes)
+    
+    return {
+      pageNumber,
+      boundingBoxes: boundingBoxes,
+      searchText: normalizedSearchText,
+      viewport: { width: viewport.width, height: viewport.height }
+    }
+    
+  } catch (error) {
+    console.warn('Error finding text coordinates:', error)
+    return null
+  }
+}
+
 // PDF Viewer Component
 function PDFViewer({ filePath, page, snippet, query }) {
   const containerRef = useRef(null)
@@ -430,6 +547,9 @@ function PDFViewer({ filePath, page, snippet, query }) {
   const mountedRef = useRef(true)
   const loadingTaskRef = useRef(null)
   const previousFileRef = useRef(null)
+  
+  // State for coordinate-based highlighting
+  const [textCoordinates, setTextCoordinates] = useState(null)
   
   // Zoom state
   const [scale, setScale] = useState(null) // null means fit-to-width
@@ -476,6 +596,26 @@ function PDFViewer({ filePath, page, snippet, query }) {
     const escaped = highlightTerms.map(term => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     return new RegExp(`(${escaped.join('|')})`, 'gi')
   }, [highlightTerms])
+
+  // Find text coordinates when snippet changes
+  useEffect(() => {
+    async function searchTextCoordinates() {
+      if (!documentRef.current || !page || !snippet) {
+        setTextCoordinates(null)
+        return
+      }
+      
+      try {
+        const coords = await findTextCoordinates(documentRef.current, page, snippet)
+        setTextCoordinates(coords)
+      } catch (error) {
+        console.warn('Failed to find text coordinates:', error)
+        setTextCoordinates(null)
+      }
+    }
+    
+    searchTextCoordinates()
+  }, [snippet, page, documentKey])
 
   // Force re-render of text layer when highlight terms change (but not on scale change)
   useEffect(() => {
@@ -835,6 +975,95 @@ function PDFViewer({ filePath, page, snippet, query }) {
     }, 100)
   }, [createFuzzyMatcher, highlightRegex, highlightTerms])
 
+  // Coordinate-based highlight overlay component with improved positioning
+  const CoordinateHighlightOverlay = ({ coords, scale, containerWidth, actualPageWidth }) => {
+    if (!coords || coords.pageNumber !== page) return null
+    
+    const currentScale = scale || (containerWidth / actualPageWidth)
+    const { boundingBoxes, viewport } = coords
+    
+    if (!boundingBoxes || boundingBoxes.length === 0) return null
+    
+    console.log('Rendering highlights with scale:', currentScale)
+    console.log('Bounding boxes:', boundingBoxes)
+    
+    // Filter and validate boxes to ensure they're within reasonable bounds
+    const validBoxes = boundingBoxes.filter(box => {
+      const scaledX = box.x * currentScale
+      const scaledY = box.y * currentScale
+      const scaledWidth = box.width * currentScale
+      const scaledHeight = box.height * currentScale
+      
+      // Check if box is within reasonable bounds
+      return scaledX >= 0 && scaledY >= 0 && 
+             scaledX < containerWidth * 2 && // Allow some overflow for zoom
+             scaledY < viewport.height * currentScale * 2 &&
+             scaledWidth > 0 && scaledHeight > 0
+    })
+    
+    if (validBoxes.length === 0) {
+      console.warn('No valid boxes to render')
+      return null
+    }
+    
+    // Merge overlapping boxes to avoid color stacking
+    const mergedBoxes = []
+    const threshold = 5 / currentScale // Adjust threshold based on scale
+    
+    validBoxes.forEach(box => {
+      let merged = false
+      for (let i = 0; i < mergedBoxes.length; i++) {
+        const existingBox = mergedBoxes[i]
+        // Check if boxes are close enough to merge (same line)
+        if (Math.abs(box.y - existingBox.y) < threshold && 
+            Math.abs(box.height - existingBox.height) < threshold) {
+          // Extend the existing box to cover this one
+          const minX = Math.min(existingBox.x, box.x)
+          const maxX = Math.max(existingBox.x + existingBox.width, box.x + box.width)
+          existingBox.x = minX
+          existingBox.width = maxX - minX
+          merged = true
+          break
+        }
+      }
+      if (!merged) {
+        mergedBoxes.push({ ...box })
+      }
+    })
+    
+    console.log('Merged boxes:', mergedBoxes)
+    
+    return (
+      <div style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}>
+        {mergedBoxes.map((box, index) => {
+          const left = Math.round(box.x * currentScale)
+          const top = Math.round(box.y * currentScale)
+          const width = Math.round(Math.max(box.width * currentScale, 8))
+          const height = Math.round(Math.max(box.height * currentScale, 12))
+          
+          return (
+            <div
+              key={index}
+              style={{
+                position: 'absolute',
+                left: `${left}px`,
+                top: `${top}px`,
+                width: `${width}px`,
+                height: `${height}px`,
+                backgroundColor: 'rgba(250, 204, 21, 0.4)',
+                border: '1px solid rgba(250, 204, 21, 0.8)',
+                borderRadius: '2px',
+                pointerEvents: 'none',
+                zIndex: 10
+              }}
+              title={`Highlight ${index + 1}: "${box.text}"`}
+            />
+          )
+        })}
+      </div>
+    )
+  }
+
   return (
     <div className="pdf-viewer" style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
       <div className="pdf-header" style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -976,6 +1205,18 @@ function PDFViewer({ filePath, page, snippet, query }) {
                   }
                 }, 500)
               }
+              
+              // Trigger text coordinate search after document is loaded
+              if (snippet && page) {
+                setTimeout(async () => {
+                  try {
+                    const coords = await findTextCoordinates(pdf, page, snippet)
+                    setTextCoordinates(coords)
+                  } catch (error) {
+                    console.warn('Failed to find text coordinates on load:', error)
+                  }
+                }, 1000) // Wait longer for pages to render
+              }
             }}
             onLoadError={(err) => {
               console.error('PDF load error:', err)
@@ -1044,17 +1285,16 @@ function PDFViewer({ filePath, page, snippet, query }) {
             {numPages && numPages > 0 && documentRef.current ? (
               Array.from({ length: numPages }, (_, i) => i + 1).map((pageNum) => (
                 <div key={`page-container-${documentKey}-${pageNum}`} style={{ 
-                  marginBottom: '16px'
+                  marginBottom: '16px',
+                  position: 'relative' // Enable positioning for overlay
                 }}>
                   <Page
                     key={`${filePath}-${pageNum}`}
                     pageNumber={pageNum}
                     width={scale ? undefined : containerWidth}
                     scale={scale || undefined}
-                    renderTextLayer={true}
+                    renderTextLayer={false} // Disable text layer to avoid conflicts with coordinate highlighting
                     renderAnnotationLayer={false}
-                    customTextRenderer={(createFuzzyMatcher || highlightRegex) ? customTextRenderer : undefined}
-                    onRenderTextLayerSuccess={onRenderTextLayerSuccess}
                     onRenderSuccess={() => {
                       // Page rendered successfully
                     }}
@@ -1097,6 +1337,15 @@ function PDFViewer({ filePath, page, snippet, query }) {
                       </div>
                     }
                   />
+                  {/* Add coordinate-based highlight overlay */}
+                  {textCoordinates && textCoordinates.pageNumber === pageNum && (
+                    <CoordinateHighlightOverlay
+                      coords={textCoordinates}
+                      scale={scale}
+                      containerWidth={containerWidth}
+                      actualPageWidth={actualPageWidth}
+                    />
+                  )}
                 </div>
               ))
             ) : null}
@@ -1163,6 +1412,7 @@ export default function App() {
   const [activeDoc, setActiveDoc] = useState(null)
   const [activePage, setActivePage] = useState(null)
   const [activeSnippet, setActiveSnippet] = useState('')
+  const [activeSnippetCoords, setActiveSnippetCoords] = useState(null) // Store coordinates for precise highlighting
   
   const [notes, setNotes] = useState({})
   const [showSettings, setShowSettings] = useState(false)
