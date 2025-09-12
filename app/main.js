@@ -1,5 +1,5 @@
 const electronModule = require('electron')
-const { app, BrowserWindow, dialog, ipcMain, shell } = electronModule
+const { app, BrowserWindow, dialog, ipcMain, shell, nativeTheme } = electronModule
 const path = require('node:path')
 const fs = require('node:fs')
 const url = require('node:url')
@@ -28,15 +28,37 @@ const workspace = {
 }
 
 function createWindow() {
-  const win = new BrowserWindow({
+  const windowOptions = {
     width: 1400,
     height: 900,
     title: 'LitNav',
+    backgroundColor: '#1e1e1e',
+    show: false, // Don't show until ready
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
     },
+  }
+
+  // Windows-specific dark mode settings
+  if (process.platform === 'win32') {
+    windowOptions.titleBarStyle = 'hidden'
+    windowOptions.titleBarOverlay = {
+      color: '#1e1e1e',
+      symbolColor: '#ffffff',
+      height: 30
+    }
+  } else if (process.platform === 'darwin') {
+    windowOptions.titleBarStyle = 'hiddenInset'
+    windowOptions.vibrancy = 'under-window'
+  }
+
+  const win = new BrowserWindow(windowOptions)
+
+  // Show window when ready
+  win.once('ready-to-show', () => {
+    win.show()
   })
 
   const indexPath = path.join(process.cwd(), 'dist', 'index.html')
@@ -53,6 +75,9 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Force dark mode
+  nativeTheme.themeSource = 'dark'
+  
   createWindow()
 
   app.on('activate', () => {

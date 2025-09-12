@@ -108,13 +108,16 @@ class PDFErrorBoundary extends React.Component {
 // Welcome Screen
 function WelcomeScreen({ onSelectWorkspace }) {
   return (
-    <div className="welcome-screen">
-      <div className="welcome-content">
-        <h1 className="welcome-title">LitNav</h1>
-        <p className="welcome-subtitle">로컬 워크스페이스 기반 논문 탐색 도구</p>
-        <button className="welcome-button" onClick={onSelectWorkspace}>
-          워크스페이스 선택
-        </button>
+    <div className="app-container">
+      <TitleBar />
+      <div className="welcome-screen">
+        <div className="welcome-content">
+          <h1 className="welcome-title">LitNav</h1>
+          <p className="welcome-subtitle">로컬 워크스페이스 기반 논문 탐색 도구</p>
+          <button className="welcome-button" onClick={onSelectWorkspace}>
+            워크스페이스 선택
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -204,6 +207,17 @@ function SettingsModal({ isOpen, settings, onSave, onClose }) {
           <button className="btn btn-secondary" onClick={onClose}>취소</button>
           <button className="btn btn-primary" onClick={handleSave}>저장</button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// Title Bar Component
+function TitleBar() {
+  return (
+    <div className="title-bar">
+      <div className="title-bar-content">
+        <span className="app-title">LitNav</span>
       </div>
     </div>
   )
@@ -416,6 +430,14 @@ function PDFViewer({ filePath, page, snippet, query }) {
   const mountedRef = useRef(true)
   const loadingTaskRef = useRef(null)
   const previousFileRef = useRef(null)
+  
+  // Zoom state
+  const [scale, setScale] = useState(null) // null means fit-to-width
+  const [isManualZoom, setIsManualZoom] = useState(false) // Track if user manually zoomed
+  const [isZooming, setIsZooming] = useState(false) // For transient zoom UI state
+  const [currentFitScale, setCurrentFitScale] = useState(1) // Track the current fit scale
+  const [actualPageWidth, setActualPageWidth] = useState(600) // Track actual PDF page width
+  const zoomEndTimeoutRef = useRef(null)
 
 
   const highlightTerms = useMemo(() => {
@@ -450,9 +472,11 @@ function PDFViewer({ filePath, page, snippet, query }) {
     return new RegExp(`(${escaped.join('|')})`, 'gi')
   }, [highlightTerms])
 
-  // Force re-render of text layer when highlight terms change
+  // Force re-render of text layer when highlight terms change (but not on scale change)
   useEffect(() => {
-    setTextRendererKey(prev => prev + 1)
+    if (highlightRegex) {
+      setTextRendererKey(prev => prev + 1)
+    }
   }, [highlightRegex])
 
   const customTextRenderer = useCallback(({ str, itemIndex }) => {
@@ -578,6 +602,11 @@ function PDFViewer({ filePath, page, snippet, query }) {
             const diff = Math.abs(newWidth - prevWidth)
             return diff > 10 ? newWidth : prevWidth
           })
+          
+          // Reset to fit-to-width if window is resized and not in manual zoom mode
+          if (!isManualZoom) {
+            setScale(null)
+          }
         }
       }, 150) // Debounce resize events
     })
@@ -587,7 +616,7 @@ function PDFViewer({ filePath, page, snippet, query }) {
       observer.disconnect()
       clearTimeout(resizeTimeout)
     }
-  }, [])
+  }, [isManualZoom])
 
   useEffect(() => {
     if (!containerRef.current || !page) return
@@ -596,6 +625,126 @@ function PDFViewer({ filePath, page, snippet, query }) {
       target.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
   }, [page, numPages])
+  
+  // Reset zoom to fit-to-width when context (file or page) changes
+  useEffect(() => {
+    setScale(null)
+    setIsManualZoom(false)
+  }, [filePath, page])
+
+  // Update fit scale when container width or actual page width changes
+  useEffect(() => {
+    const fitScale = containerWidth / actualPageWidth
+    setCurrentFitScale(Math.max(0.1, fitScale))
+  }, [containerWidth, actualPageWidth])
+  
+  // Zoom helpers
+  const clampScale = useCallback((s) => Math.max(0.5, Math.min(3, s)), [])
+
+  const applyZoomStep = useCallback((direction) => {
+    // direction: +1 for in, -1 for out
+    setIsManualZoom(true)
+    setIsZooming(true)
+
+    // Preserve horizontal center position during zoom
+    const container = containerRef.current
+    let centerRatio = 0
+    if (container) {
+      const prevSW = container.scrollWidth
+      const prevCW = container.clientWidth
+      const prevCenter = container.scrollLeft + prevCW / 2
+      centerRatio = prevSW > 0 ? prevCenter / prevSW : 0
+    }
+
+    setScale(prevScale => {
+      // If we're in FIT mode (scale is null), use current fit scale as base
+      let base = prevScale || currentFitScale
+      const next = clampScale(base + (direction > 0 ? 0.2 : -0.2))
+      return next
+    })
+
+    // After pages resize, restore center position
+    if (container) {
+      const adjust = () => {
+        const sw = container.scrollWidth
+        const cw = container.clientWidth
+        const desiredCenter = Math.max(0, Math.min(sw, centerRatio * sw))
+        const newScrollLeft = Math.max(0, Math.min(sw - cw, desiredCenter - cw / 2))
+        container.scrollLeft = newScrollLeft
+      }
+      // Double RAF to wait for layout, fallback to timeout
+      requestAnimationFrame(() => requestAnimationFrame(adjust))
+      setTimeout(adjust, 60)
+    }
+
+    // Debounce end-of-zoom state
+    if (zoomEndTimeoutRef.current) clearTimeout(zoomEndTimeoutRef.current)
+    zoomEndTimeoutRef.current = setTimeout(() => setIsZooming(false), 160)
+  }, [clampScale, currentFitScale])
+
+  // Zoom functions
+  const handleZoomIn = useCallback(() => {
+    applyZoomStep(+1)
+  }, [applyZoomStep])
+  
+  const handleZoomOut = useCallback(() => {
+    applyZoomStep(-1)
+  }, [applyZoomStep])
+  
+  const handleZoomReset = useCallback(() => {
+    setScale(null)
+    setIsManualZoom(false)
+    setIsZooming(false)
+  }, [])
+  
+  const handleZoomFit = useCallback(() => {
+    setScale(1)
+    setIsManualZoom(true)
+    setIsZooming(false)
+  }, [])
+  
+  // Keyboard shortcuts for zoom
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (!fileUrl || pdfError) return
+      
+      // Ctrl/Cmd + Plus for zoom in
+      if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '=')) {
+        e.preventDefault()
+        handleZoomIn()
+      }
+      // Ctrl/Cmd + Minus for zoom out
+      else if ((e.ctrlKey || e.metaKey) && e.key === '-') {
+        e.preventDefault()
+        handleZoomOut()
+      }
+      // Ctrl/Cmd + 0 for reset zoom
+      else if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+        e.preventDefault()
+        handleZoomReset()
+      }
+    }
+    
+    // Add event listener to the container
+    const container = containerRef.current
+    if (container) {
+      container.addEventListener('keydown', handleKeyDown)
+      // Make container focusable
+      container.tabIndex = -1
+      
+      return () => {
+        container.removeEventListener('keydown', handleKeyDown)
+      }
+    }
+  }, [fileUrl, pdfError, handleZoomIn, handleZoomOut, handleZoomReset])
+  
+
+  // Cleanup zoom timers
+  useEffect(() => {
+    return () => {
+      if (zoomEndTimeoutRef.current) clearTimeout(zoomEndTimeoutRef.current)
+    }
+  }, [])
 
   // Handle text layer rendering completion
   const onRenderTextLayerSuccess = useCallback(() => {
@@ -619,22 +768,116 @@ function PDFViewer({ filePath, page, snippet, query }) {
   }, [highlightRegex])
 
   return (
-    <div className="pdf-viewer" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div className="pdf-header" style={{ flexShrink: 0 }}>
-        <div className="text-truncate" title={filePath || ''}>
+    <div className="pdf-viewer" style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
+      <div className="pdf-header" style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div className="text-truncate" title={filePath || ''} style={{ flex: 1 }}>
           {filePath ? filePath.split(/[\\\\/]/).pop() : 'PDF Viewer'}
         </div>
+        
         {numPages && page && (
-          <span>{page} / {numPages}</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{page} / {numPages}</span>
         )}
       </div>
       
-      <div ref={containerRef} className="pdf-content" style={{ flex: 1, overflow: 'auto' }}>
+      {/* Zoom Controls - Fixed position in bottom left of viewer */}
+      {fileUrl && !pdfError && (
+        <div style={{
+          position: 'absolute',
+          bottom: '16px',
+          left: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+          background: 'rgba(0, 0, 0, 0.8)',
+          borderRadius: '4px',
+          padding: '6px 8px',
+          zIndex: 100,
+          backdropFilter: 'blur(4px)'
+        }}>
+          <button
+            onClick={handleZoomOut}
+            style={{
+              padding: '4px 8px',
+              background: 'var(--vscode-button-bg)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '3px',
+              fontSize: '12px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: '24px',
+              height: '24px'
+            }}
+            title="축소"
+          >
+            −
+          </button>
+          
+          <span style={{ 
+            fontSize: '11px', 
+            color: 'white', 
+            minWidth: '40px', 
+            textAlign: 'center',
+            fontWeight: '500'
+          }}>
+            {scale ? `${Math.round(scale * 100)}%` : `${Math.round(currentFitScale * 100)}%`}
+          </span>
+          
+          <button
+            onClick={handleZoomIn}
+            style={{
+              padding: '4px 8px',
+              background: 'var(--vscode-button-bg)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '3px',
+              fontSize: '12px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: '24px',
+              height: '24px'
+            }}
+            title="확대"
+          >
+            +
+          </button>
+          
+          <button
+            onClick={handleZoomReset}
+            style={{
+              padding: '4px 6px',
+              background: 'var(--vscode-button-bg)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '3px',
+              fontSize: '10px',
+              cursor: 'pointer',
+              marginLeft: '2px',
+              height: '24px'
+            }}
+            title="화면에 맞춤"
+          >
+            Fit
+          </button>
+        </div>
+      )}
+      
+      <div ref={containerRef} className={`pdf-content${isZooming ? ' zooming' : ''}`} style={{ 
+        flex: 1, 
+        overflow: 'auto',
+        position: 'relative',
+        width: '100%',
+        height: '100%'
+      }}>
         {fileUrl && !pdfError && !isLoading ? (
           <Document
             key={`${filePath}-${documentKey}`}
             file={fileUrl}
-            onLoadSuccess={(pdf) => {
+            onLoadSuccess={async (pdf) => {
               if (!mountedRef.current || !pdf) return
               
               // Store both loading task and document
@@ -643,6 +886,18 @@ function PDFViewer({ filePath, page, snippet, query }) {
               
               setNumPages(pdf.numPages || 0)
               setPdfError(null)
+              
+              // Get the first page to determine actual page dimensions
+              try {
+                const firstPage = await pdf.getPage(1)
+                const viewport = firstPage.getViewport({ scale: 1 })
+                setActualPageWidth(viewport.width)
+                firstPage.cleanup()
+              } catch (error) {
+                console.warn('Could not get page dimensions:', error)
+                // Fallback to default
+                setActualPageWidth(600)
+              }
             }}
             onLoadError={(err) => {
               console.error('PDF load error:', err)
@@ -710,14 +965,17 @@ function PDFViewer({ filePath, page, snippet, query }) {
           >
             {numPages && numPages > 0 && documentRef.current ? (
               Array.from({ length: numPages }, (_, i) => i + 1).map((pageNum) => (
-                <div key={`page-container-${documentKey}-${pageNum}`}>
+                <div key={`page-container-${documentKey}-${pageNum}`} style={{ 
+                  marginBottom: '16px'
+                }}>
                   <Page
-                    key={`${documentKey}-${pageNum}-${textRendererKey}`}
+                    key={`${filePath}-${pageNum}`}
                     pageNumber={pageNum}
-                    width={containerWidth}
+                    width={scale ? undefined : containerWidth}
+                    scale={scale || undefined}
                     renderTextLayer={true}
                     renderAnnotationLayer={false}
-                    customTextRenderer={customTextRenderer}
+                    customTextRenderer={highlightRegex ? customTextRenderer : undefined}
                     onRenderTextLayerSuccess={onRenderTextLayerSuccess}
                     onRenderSuccess={() => {
                       // Page rendered successfully
@@ -732,7 +990,7 @@ function PDFViewer({ filePath, page, snippet, query }) {
                     }}
                     loading={
                       <div style={{ 
-                        width: containerWidth, 
+                        width: scale ? `${scale * 600}px` : containerWidth, 
                         height: '200px', 
                         display: 'flex', 
                         alignItems: 'center', 
@@ -747,7 +1005,7 @@ function PDFViewer({ filePath, page, snippet, query }) {
                     }
                     error={
                       <div style={{ 
-                        width: containerWidth, 
+                        width: scale ? `${scale * 600}px` : containerWidth, 
                         height: '200px', 
                         display: 'flex', 
                         alignItems: 'center', 
@@ -794,20 +1052,8 @@ function PDFViewer({ filePath, page, snippet, query }) {
             )}
           </div>
         )}
+        
       </div>
-
-      {snippet && (
-        <div style={{ 
-          borderTop: '1px solid var(--border)', 
-          padding: '12px', 
-          backgroundColor: 'rgba(0, 123, 204, 0.1)',
-          fontSize: '12px',
-          flexShrink: 0
-        }}>
-          <div style={{ color: 'var(--text-muted)', marginBottom: '4px' }}>선택된 문맥</div>
-          <div style={{ color: 'var(--text-secondary)' }}>{snippet}</div>
-        </div>
-      )}
     </div>
   )
 }
@@ -1059,13 +1305,16 @@ export default function App() {
 
   return (
     <div className="app-container">
-      <ActivityBar
-        activeView={activeView}
-        onViewChange={handleViewChange}
-        processing={processing}
-        onSettings={() => setShowSettings(true)}
-        onExit={exitWorkspace}
-      />
+      <TitleBar />
+      
+      <div className="app-content">
+        <ActivityBar
+          activeView={activeView}
+          onViewChange={handleViewChange}
+          processing={processing}
+          onSettings={() => setShowSettings(true)}
+          onExit={exitWorkspace}
+        />
 
       <div className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <SidebarContent
@@ -1161,8 +1410,9 @@ export default function App() {
                           className="result-text"
                           style={{ cursor: 'pointer' }}
                           onClick={() => openContext(result.path, hit.page, hit.text)}
+                          title={hit.text}
                         >
-                          {hit.text}
+                          {hit.text.length > 150 ? hit.text.substring(0, 150) + '...' : hit.text}
                         </div>
                         <button 
                           className="result-button"
@@ -1204,6 +1454,8 @@ export default function App() {
           </div>
         </div>
       </div>
+      
+      </div> {/* app-content */}
 
       <SettingsModal
         isOpen={showSettings}

@@ -28,7 +28,7 @@
   --border: var(--vscode-border);
   
   /* Splitter position */
-  --splitter-position: 50%;
+  --splitter-position: 30%;
 }
 
 /* Base Styles */
@@ -48,13 +48,108 @@ html, body, #root {
 body {
   background: var(--bg-primary);
   color: var(--text-primary);
+}
+
+/* Title Bar */
+.title-bar {
+  height: 30px;
+  background: var(--vscode-editor-bg);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding-left: 16px;
+  -webkit-app-region: drag;
+  flex-shrink: 0;
+}
+
+.title-bar-content {
+  -webkit-app-region: no-drag;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+.app-title {
   font-size: 13px;
-  line-height: 1.4;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 1px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+/* App Content Container */
+.app-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Title bar drag region for Windows with custom title bar */
+@media screen and (-webkit-min-device-pixel-ratio: 0) {
+  .app-container {
+    -webkit-app-region: no-drag;
+  }
+
+  /* Title bar is draggable */
+  .title-bar {
+    -webkit-app-region: drag;
+  }
+
+  /* Ensure all interactive elements are clickable */
+  .activity-bar,
+  .sidebar,
+  .main-editor,
+  .modal-overlay,
+  button,
+  input,
+  select,
+  textarea,
+  .file-item,
+  .search-container,
+  .file-tree-header,
+  .btn,
+  .result-item,
+  .result-text,
+  .result-button {
+    -webkit-app-region: no-drag;
+  }
+}
+
+/* React-PDF Styles - Fix scrolling and centering issues */
+.react-pdf__Document {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.react-pdf__Page {
+  margin: 0 auto;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+}
+
+.react-pdf__Page__canvas {
+  margin: 0 auto;
+  display: block;
+}
+
+.react-pdf__Page__textContent {
+  margin: 0 auto;
+}
+
+.react-pdf__Page__annotations {
+  margin: 0 auto;
 }
 
 /* VSCode Layout */
 .app-container {
   display: flex;
+  flex-direction: column;
   height: 100vh;
   overflow: hidden;
 }
@@ -367,7 +462,10 @@ body {
 .pdf-content .react-pdf__Document {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  /* Left-align pages inside scroll container to avoid left clipping when zoomed */
+  align-items: flex-start;
+  /* Make the document as wide as its content so horizontal scroll reflects actual width */
+  width: max-content;
   padding: 16px;
   gap: 16px;
 }
@@ -377,6 +475,14 @@ body {
   border-radius: 4px;
   overflow: hidden;
   margin-bottom: 16px;
+  /* Remove auto-centering margins to prevent negative-left overflow scenarios */
+  margin-left: 0;
+  margin-right: 0;
+}
+
+/* While zooming, hide text layer to reduce flicker */
+.pdf-content.zooming .react-pdf__Page__textContent {
+  visibility: hidden;
 }
 
 /* React-PDF Text Layer Styles */
@@ -538,7 +644,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100vh;
+  flex: 1;
   background: var(--bg-primary);
   color: var(--text-primary);
 }
