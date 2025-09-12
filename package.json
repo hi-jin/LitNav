@@ -41,15 +41,24 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
+      "icon": "icon.png",
       "target": [
         "dmg",
         "zip"
       ]
     },
     "win": {
+      "icon": "icon.png",
       "target": [
         "nsis",
         "zip"
+      ]
+    },
+    "linux": {
+      "icon": "icon.png",
+      "target": [
+        "AppImage",
+        "deb"
       ]
     }
   }

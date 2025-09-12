@@ -32,6 +32,7 @@ function createWindow() {
     height: 900,
     title: 'LitNav',
     backgroundColor: '#1e1e1e',
+    icon: path.join(__dirname, '../icon.png'), // Add icon for window
     show: false, // Don't show until ready
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -60,8 +61,22 @@ function createWindow() {
     win.show()
   })
 
-  const indexPath = path.join(process.cwd(), 'dist', 'index.html')
-  if (fs.existsSync(indexPath)) {
+  // Try different paths for built files depending on environment
+  const possiblePaths = [
+    path.join(process.cwd(), 'dist', 'index.html'),
+    path.join(__dirname, '../dist', 'index.html'),
+    path.join(process.resourcesPath, 'dist', 'index.html')
+  ]
+  
+  let indexPath = null
+  for (const tryPath of possiblePaths) {
+    if (fs.existsSync(tryPath)) {
+      indexPath = tryPath
+      break
+    }
+  }
+  
+  if (indexPath) {
     win.loadURL(url.pathToFileURL(indexPath).href)
   } else {
     win.loadURL('data:text/html,<h1>Build not found. Run npm run start</h1>')

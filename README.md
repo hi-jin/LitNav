@@ -44,6 +44,12 @@ npm run start   # 렌더러 빌드 후 Electron 실행
 npm run build   # electron-builder로 패키징 (현재 OS 타겟)
 ```
 
+### 앱 아이콘 설정
+프로젝트 루트에 `icon.png` 파일이 있으면 자동으로 앱 아이콘으로 사용됩니다:
+- **권장 크기**: 512x512 픽셀 이상 (PNG 형식)
+- **용도**: 설치 파일 아이콘, Alt+Tab 아이콘, 독(Dock)/태스크바 아이콘
+- **자동 변환**: electron-builder가 각 플랫폼에 맞게 자동 변환
+
 > **주의**: macOS/Windows 각각 해당 OS에서 빌드해야 합니다.
 
 ## 🏗️ 아키텍처
