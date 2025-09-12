@@ -597,7 +597,7 @@ function PDFViewer({ filePath, page, snippet, query }) {
     return new RegExp(`(${escaped.join('|')})`, 'gi')
   }, [highlightTerms])
 
-  // Find text coordinates when snippet changes
+  // Find text coordinates when snippet changes and scroll to position
   useEffect(() => {
     async function searchTextCoordinates() {
       if (!documentRef.current || !page || !snippet) {
@@ -608,6 +608,13 @@ function PDFViewer({ filePath, page, snippet, query }) {
       try {
         const coords = await findTextCoordinates(documentRef.current, page, snippet)
         setTextCoordinates(coords)
+        
+        // Scroll to the highlighted text position after coordinates are found
+        if (coords && coords.boundingBoxes && coords.boundingBoxes.length > 0) {
+          setTimeout(() => {
+            scrollToHighlight(coords)
+          }, 300) // Wait for highlight to render
+        }
       } catch (error) {
         console.warn('Failed to find text coordinates:', error)
         setTextCoordinates(null)
@@ -616,6 +623,33 @@ function PDFViewer({ filePath, page, snippet, query }) {
     
     searchTextCoordinates()
   }, [snippet, page, documentKey])
+  
+  // Function to scroll to highlight position within the page
+  const scrollToHighlight = useCallback((coords) => {
+    if (!containerRef.current || !coords || !coords.boundingBoxes) return
+    
+    const currentScale = scale || (containerWidth / actualPageWidth)
+    const firstBox = coords.boundingBoxes[0]
+    
+    // Calculate the absolute position of the highlight within the PDF container
+    const pageContainer = containerRef.current.querySelector(`[data-page-number="${coords.pageNumber}"]`)?.parentElement
+    if (!pageContainer) return
+    
+    const pageRect = pageContainer.getBoundingClientRect()
+    const containerRect = containerRef.current.getBoundingClientRect()
+    
+    // Calculate target scroll position
+    const highlightY = firstBox.y * currentScale
+    const targetScrollTop = pageContainer.offsetTop + highlightY - (containerRect.height / 2)
+    
+    // Smooth scroll to the highlight position
+    containerRef.current.scrollTo({
+      top: Math.max(0, targetScrollTop),
+      behavior: 'smooth'
+    })
+    
+    console.log('Scrolled to highlight at page', coords.pageNumber, 'position', highlightY)
+  }, [scale, containerWidth, actualPageWidth])
 
   // Force re-render of text layer when highlight terms change (but not on scale change)
   useEffect(() => {
@@ -775,35 +809,41 @@ function PDFViewer({ filePath, page, snippet, query }) {
     }
   }, [isManualZoom])
 
-  // Handle page jumping with proper timing
+  // Handle page jumping with proper timing (only for different pages)
   useEffect(() => {
     if (!containerRef.current || !page || !numPages) return
     
     const scrollToPage = () => {
       const target = containerRef.current.querySelector(`[data-page-number="${page}"]`)
       if (target?.scrollIntoView) {
-        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        // Only do page-level jump if we don't have specific coordinates to scroll to
+        // This will be overridden by scrollToHighlight if coordinates are found
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' })
         return true
       }
       return false
     }
     
-    // Try immediate scroll first
-    if (scrollToPage()) return
-    
-    // If not found, wait for pages to render
-    const maxRetries = 10
-    let retries = 0
-    const retryScroll = () => {
-      if (retries >= maxRetries) return
+    // Only do page jumping if we don't have text coordinates yet
+    // The scrollToHighlight function will handle precise positioning
+    if (!textCoordinates) {
+      // Try immediate scroll first
       if (scrollToPage()) return
       
-      retries++
-      setTimeout(retryScroll, 200)
+      // If not found, wait for pages to render
+      const maxRetries = 10
+      let retries = 0
+      const retryScroll = () => {
+        if (retries >= maxRetries) return
+        if (scrollToPage()) return
+        
+        retries++
+        setTimeout(retryScroll, 200)
+      }
+      
+      setTimeout(retryScroll, 100)
     }
-    
-    setTimeout(retryScroll, 100)
-  }, [page, numPages])
+  }, [page, numPages, textCoordinates])
   
   // Reset zoom to fit-to-width when context (file or page) changes
   useEffect(() => {
@@ -1050,8 +1090,7 @@ function PDFViewer({ filePath, page, snippet, query }) {
                 top: `${top}px`,
                 width: `${width}px`,
                 height: `${height}px`,
-                backgroundColor: 'rgba(250, 204, 21, 0.4)',
-                border: '1px solid rgba(250, 204, 21, 0.8)',
+                backgroundColor: 'rgba(250, 204, 21, 0.25)', // More transparent for better text readability
                 borderRadius: '2px',
                 pointerEvents: 'none',
                 zIndex: 10
@@ -1212,6 +1251,13 @@ function PDFViewer({ filePath, page, snippet, query }) {
                   try {
                     const coords = await findTextCoordinates(pdf, page, snippet)
                     setTextCoordinates(coords)
+                    
+                    // Scroll to highlight after finding coordinates
+                    if (coords && coords.boundingBoxes && coords.boundingBoxes.length > 0) {
+                      setTimeout(() => {
+                        scrollToHighlight(coords)
+                      }, 500) // Wait for pages and highlights to render
+                    }
                   } catch (error) {
                     console.warn('Failed to find text coordinates on load:', error)
                   }
