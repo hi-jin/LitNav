@@ -1,0 +1,763 @@
+@import "tailwindcss";
+
+/* VSCode-like Design System */
+:root {
+  --vscode-activitybar-bg: #2c2c2c;
+  --vscode-activitybar-fg: #cccccc;
+  --vscode-activitybar-active: #007acc;
+  --vscode-sidebar-bg: #252526;
+  --vscode-sidebar-fg: #cccccc;
+  --vscode-editor-bg: #1e1e1e;
+  --vscode-editor-fg: #d4d4d4;
+  --vscode-panel-bg: #181818;
+  --vscode-border: #3e3e42;
+  --vscode-input-bg: #3c3c3c;
+  --vscode-input-border: #464647;
+  --vscode-button-bg: #0e639c;
+  --vscode-button-hover: #1177bb;
+  --vscode-list-hover: #2a2d2e;
+  --vscode-list-active: #094771;
+  
+  --primary: #007acc;
+  --primary-dark: #005a9e;
+  --surface: var(--vscode-sidebar-bg);
+  --bg-primary: var(--vscode-editor-bg);
+  --text-primary: var(--vscode-editor-fg);
+  --text-secondary: #9d9d9d;
+  --text-muted: #6a6a6a;
+  --border: var(--vscode-border);
+  
+  /* Splitter position */
+  --splitter-position: 50%;
+}
+
+/* Base Styles */
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* VSCode Layout */
+.app-container {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.activity-bar {
+  width: 48px;
+  background: var(--vscode-activitybar-bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0;
+  border-right: 1px solid var(--border);
+}
+
+.activity-item {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--vscode-activitybar-fg);
+  cursor: pointer;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  position: relative;
+  transition: all 0.1s;
+}
+
+.activity-item:hover {
+  color: white;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.activity-item.active {
+  color: white;
+  background: var(--vscode-activitybar-active);
+}
+
+.activity-item.active::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: white;
+}
+
+.sidebar {
+  width: 300px;
+  background: var(--vscode-sidebar-bg);
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  transition: width 0.2s ease;
+}
+
+.sidebar.collapsed {
+  width: 0;
+  overflow: hidden;
+}
+
+.sidebar-header {
+  height: 35px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-content {
+  flex: 1;
+  overflow: auto;
+  color: var(--vscode-sidebar-fg);
+}
+
+.main-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.editor-area {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.editor-main {
+  background: var(--vscode-editor-bg);
+  display: flex;
+  flex-direction: column;
+  width: var(--splitter-position);
+  min-width: 300px;
+}
+
+.editor-sidebar {
+  background: var(--vscode-panel-bg);
+  display: flex;
+  flex-direction: column;
+  width: calc(100% - var(--splitter-position) - 4px);
+  min-width: 200px;
+}
+
+/* Resizable Splitter */
+.splitter {
+  width: 4px;
+  background: var(--vscode-border);
+  cursor: col-resize;
+  position: relative;
+  transition: background-color 0.2s;
+  flex-shrink: 0;
+}
+
+.splitter:hover {
+  background: var(--primary);
+}
+
+.splitter:active {
+  background: var(--primary);
+}
+
+.splitter::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 0;
+  width: 8px;
+  height: 100%;
+}
+
+/* Search Bar */
+.search-container {
+  padding: 16px;
+  background: var(--vscode-editor-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.search-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--vscode-input-bg);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+}
+
+.search-input:focus {
+  border-color: var(--primary);
+}
+
+.search-button {
+  margin-top: 8px;
+  padding: 6px 14px;
+  background: var(--vscode-button-bg);
+  border: none;
+  border-radius: 3px;
+  color: white;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.search-button:hover:not(:disabled) {
+  background: var(--vscode-button-hover);
+}
+
+.search-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* File List */
+.file-tree {
+  padding: 8px 0;
+}
+
+.file-tree-header {
+  padding: 4px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  padding: 2px 16px;
+  height: 22px;
+  cursor: pointer;
+  color: var(--vscode-sidebar-fg);
+  font-size: 13px;
+  transition: background 0.1s;
+}
+
+.file-item:hover {
+  background: var(--vscode-list-hover);
+}
+
+.file-item input[type="checkbox"] {
+  margin-right: 8px;
+  width: 14px;
+  height: 14px;
+}
+
+.file-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Results */
+.results-container {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+}
+
+.result-item {
+  margin-bottom: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.result-header {
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 12px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+
+.result-hit {
+  padding: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.result-hit:last-child {
+  border-bottom: none;
+}
+
+.result-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.result-text {
+  font-size: 13px;
+  line-height: 1.4;
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+}
+
+.result-button {
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.result-button:hover {
+  background: var(--vscode-list-hover);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* PDF Viewer */
+.pdf-viewer {
+  background: var(--vscode-panel-bg);
+  display: flex;
+  flex-direction: column;
+  height: 50%;
+}
+
+.pdf-header {
+  height: 35px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.pdf-content {
+  flex: 1;
+  overflow: auto;
+  background: #2d2d30;
+}
+
+.pdf-content .react-pdf__Document {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px;
+  gap: 16px;
+}
+
+.pdf-content .react-pdf__Page {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+/* React-PDF Text Layer Styles */
+.react-pdf__Page__textContent {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  opacity: 0.2;
+  line-height: 1.0;
+}
+
+.react-pdf__Page__textContent .textLayer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  opacity: 0.2;
+  line-height: 1.0;
+}
+
+.react-pdf__Page__textContent .textLayer span,
+.react-pdf__Page__textContent span {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+.react-pdf__Page__textContent .textLayer span.highlight,
+.react-pdf__Page__textContent span.highlight {
+  color: transparent;
+  background-color: rgba(180, 0, 170, 0.3);
+}
+
+/* Custom highlight styles for our search */
+.react-pdf__Page__textContent mark,
+.react-pdf__Page__textContent .textLayer mark {
+  background-color: rgba(250, 204, 21, 0.6) !important;
+  color: transparent;
+  padding: 0;
+  border-radius: 2px;
+}
+
+/* Ensure proper positioning */
+.react-pdf__Page {
+  position: relative;
+}
+
+.react-pdf__Page canvas {
+  display: block;
+}
+
+/* Hide annotation layer */
+.react-pdf__Page__annotations {
+  display: none !important;
+}
+
+/* Notes */
+.notes-section {
+  background: var(--vscode-panel-bg);
+  display: flex;
+  flex-direction: column;
+  height: 50%;
+  border-top: 1px solid var(--border);
+}
+
+.notes-header {
+  height: 35px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.notes-content {
+  flex: 1;
+  padding: 12px;
+}
+
+.notes-textarea {
+  width: 100%;
+  height: 100%;
+  background: var(--vscode-input-bg);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+  padding: 8px;
+  resize: none;
+  outline: none;
+}
+
+.notes-textarea:focus {
+  border-color: var(--primary);
+}
+
+.notes-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* Status Bar */
+.status-bar {
+  height: 22px;
+  background: var(--vscode-button-bg);
+  color: white;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.status-item {
+  margin-right: 16px;
+}
+
+/* Progress */
+.progress-container {
+  margin: 8px 0;
+}
+
+.progress-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--primary);
+  transition: width 0.3s ease;
+}
+
+/* Welcome Screen */
+.welcome-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.welcome-content {
+  text-align: center;
+  max-width: 400px;
+}
+
+.welcome-title {
+  font-size: 32px;
+  font-weight: 300;
+  margin-bottom: 16px;
+  color: var(--primary);
+}
+
+.welcome-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 32px;
+  line-height: 1.4;
+}
+
+.welcome-button {
+  padding: 8px 16px;
+  background: var(--vscode-button-bg);
+  border: none;
+  border-radius: 3px;
+  color: white;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.welcome-button:hover {
+  background: var(--vscode-button-hover);
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: var(--vscode-sidebar-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 500px;
+  max-height: 80vh;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+}
+
+.modal-close:hover {
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: 20px;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.modal-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* Form Elements */
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.form-input {
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--vscode-input-bg);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.form-row {
+  display: flex;
+  gap: 12px;
+}
+
+.form-row .form-group {
+  flex: 1;
+}
+
+/* Buttons */
+.btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 3px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.1s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-primary {
+  background: var(--vscode-button-bg);
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--vscode-button-hover);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--vscode-list-hover);
+  color: var(--text-primary);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #424242;
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #525252;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Utility */
+.hidden {
+  display: none;
+}
+
+.flex {
+  display: flex;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+.gap-2 {
+  gap: 8px;
+}
+
+.text-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

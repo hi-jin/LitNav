@@ -1,0 +1,57 @@
+{
+  "name": "litnav",
+  "version": "0.1.0",
+  "description": "LitNav: 로컬 워크스페이스 기반 논문 탐색/검색 데스크톱 앱 (Electron)",
+  "main": "app/main.js",
+  "author": "",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite build && electron .",
+    "start": "vite build && electron .",
+    "build:renderer": "vite build",
+    "build": "vite build && electron-builder",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "axios": "^1.12.0",
+    "minisearch": "^7.1.2",
+    "pdfjs-dist": "5.3.93",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-pdf": "^10.1.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.13",
+    "@vitejs/plugin-react": "^5.0.2",
+    "autoprefixer": "^10.4.21",
+    "electron": "^38.1.0",
+    "electron-builder": "^26.0.12",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.13",
+    "vite": "^7.1.5"
+  },
+  "overrides": {
+    "pdfjs-dist": "5.3.93"
+  },
+  "build": {
+    "appId": "com.litnav.app",
+    "productName": "LitNav",
+    "files": [
+      "dist/**/*",
+      "app/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    }
+  }
+}
