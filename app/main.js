@@ -4,7 +4,7 @@ const path = require('node:path')
 const fs = require('node:fs')
 const url = require('node:url')
 const axios = require('axios')
-const MiniSearch = require('minisearch')
+// Removed MiniSearch dependency - using dense vector search only
 
 // Lazy import pdfjs-dist for text extraction
 let pdfjsLib = null
@@ -17,7 +17,6 @@ const workspace = {
   root: null,
   includeFiles: [],
   docs: new Map(), // docId -> { id, path, pages, chunks: [{id, page, text, embedding, norm}] }
-  index: null, // MiniSearch
   settings: {
     embeddingHost: '',
     embeddingModel: '',
@@ -196,7 +195,6 @@ ipcMain.handle('reset-workspace', () => {
   workspace.root = null
   workspace.includeFiles = []
   workspace.docs.clear()
-  workspace.index = null
   return true
 })
 
@@ -223,7 +221,6 @@ ipcMain.handle('preprocess', async (event) => {
   try {
     // Clear previous
     workspace.docs.clear()
-    workspace.index = null
 
     // Extract text and chunk
     send('preprocess-progress', { phase: 'extract', current: 0, total: workspace.includeFiles.length })
@@ -281,27 +278,19 @@ ipcMain.handle('preprocess', async (event) => {
       send('preprocess-progress', { phase: 'embed', current: processed, total: inputs.length })
     }
 
-    // Build sparse index
-    send('preprocess-progress', { phase: 'index', current: 0, total: 1 })
-    const documents = []
+    // Count total chunks for summary
+    let totalChunks = 0
     for (const doc of workspace.docs.values()) {
-      for (const c of doc.chunks) {
-        documents.push({ id: `${doc.id}::${c.id}`, docId: doc.id, page: c.page, text: c.text })
-      }
+      totalChunks += doc.chunks.length
     }
-    const mini = new MiniSearch({ fields: ['text'], storeFields: ['docId', 'page', 'text'] })
-    mini.addAll(documents)
-    workspace.index = mini
-    send('preprocess-progress', { phase: 'index', current: 1, total: 1 })
 
-    const summary = { docCount: workspace.docs.size, chunkCount: documents.length }
+    const summary = { docCount: workspace.docs.size, chunkCount: totalChunks }
     send('preprocess-complete', summary)
     return summary
   } catch (e) {
     // Cleanup on cancel
     if (e && typeof e.message === 'string' && e.message === 'CANCELLED') {
       workspace.docs.clear()
-      workspace.index = null
       send('preprocess-cancelled', {})
       throw new Error('전처리가 취소되었습니다.')
     }
@@ -322,60 +311,52 @@ ipcMain.handle('preprocess-cancel', () => {
   return false
 })
 
-ipcMain.handle('search', async (_, { query, perDocN = 3, alpha = 0.5 }) => {
-  if (!workspace.index) throw new Error('전처리가 완료되지 않았습니다.')
+ipcMain.handle('search', async (_, { query, perDocN = 3 }) => {
+  if (workspace.docs.size === 0) throw new Error('전처리가 완료되지 않았습니다.')
   const { embeddingHost, embeddingModel, apiKey } = workspace.settings
+  
+  // Get query embedding
   const [qEmb] = await embedBatch([query], embeddingHost, embeddingModel, apiKey)
   const qNorm = norm(qEmb)
 
-  // Dense similarity across all chunks
-  const denseScores = new Map() // key: docId::chunkId -> score
-  let maxDense = 0
+  // Dense vector similarity search across all chunks
+  const resultsByDoc = new Map() // docId -> [{id, score, page, text}]
+  
   for (const doc of workspace.docs.values()) {
+    const docResults = []
+    
     for (const c of doc.chunks) {
-      const s = qNorm && c.norm ? dot(qEmb, c.embedding) / (qNorm * c.norm) : 0
-      if (s > maxDense) maxDense = s
-      denseScores.set(`${doc.id}::${c.id}`, s)
+      // Calculate cosine similarity
+      const similarity = qNorm && c.norm ? dot(qEmb, c.embedding) / (qNorm * c.norm) : 0
+      
+      docResults.push({
+        id: `${doc.id}::${c.id}`,
+        score: similarity,
+        page: c.page,
+        text: c.text
+      })
+    }
+    
+    // Sort by similarity score and keep top N per document
+    docResults.sort((a, b) => b.score - a.score)
+    if (docResults.length > 0) {
+      resultsByDoc.set(doc.id, docResults.slice(0, perDocN))
     }
   }
 
-  // Sparse search limited to top K, then normalize
-  const sparse = workspace.index.search(query, { prefix: true, boost: { text: 1 } })
-  const sparseScores = new Map()
-  let maxSparse = 0
-  for (const r of sparse) {
-    if (r.score > maxSparse) maxSparse = r.score
-  }
-  for (const r of sparse) {
-    sparseScores.set(r.id, r.score)
-  }
-
-  // Combine
-  const combinedByDoc = new Map() // docId -> [{id, score, page, text}]
-  for (const doc of workspace.docs.values()) {
-    for (const c of doc.chunks) {
-      const key = `${doc.id}::${c.id}`
-      const ds = denseScores.get(key) || 0
-      const ss = sparseScores.get(key) || 0
-      const nd = maxDense > 0 ? ds / maxDense : 0
-      const ns = maxSparse > 0 ? ss / maxSparse : 0
-      const score = alpha * ns + (1 - alpha) * nd
-      const arr = combinedByDoc.get(doc.id) || []
-      arr.push({ id: key, score, page: c.page, text: c.text })
-      combinedByDoc.set(doc.id, arr)
-    }
-  }
+  // Convert to final result format and sort documents by best hit
   const results = []
-  for (const [docId, arr] of combinedByDoc.entries()) {
-    arr.sort((a, b) => b.score - a.score)
+  for (const [docId, hits] of resultsByDoc.entries()) {
     results.push({
       docId,
       path: docId,
-      hits: arr.slice(0, perDocN),
+      hits
     })
   }
-  // Sort documents by top hit score
+  
+  // Sort documents by their top hit score
   results.sort((a, b) => (b.hits[0]?.score || 0) - (a.hits[0]?.score || 0))
+  
   return results
 })
 
