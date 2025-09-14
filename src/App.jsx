@@ -123,6 +123,255 @@ function WelcomeScreen({ onSelectWorkspace }) {
   )
 }
 
+// Confirmation Modal Component
+function ConfirmationModal({ isOpen, title, message, onConfirm, onCancel, confirmText = "확인", cancelText = "취소", isDanger = false }) {
+  if (!isOpen) return null
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal" style={{ maxWidth: '400px' }}>
+        <div className="modal-header">
+          <div className="modal-title">{title}</div>
+          <button className="modal-close" onClick={onCancel}>×</button>
+        </div>
+        <div className="modal-body">
+          <p style={{ fontSize: '13px', lineHeight: '1.5', margin: 0 }}>{message}</p>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onCancel}>
+            {cancelText}
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={onConfirm}
+            style={isDanger ? {
+              background: 'var(--vscode-errorBackground)',
+              color: 'white'
+            } : {}}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Notes Collection Modal
+function NotesCollectionModal({ isOpen, notes, files, onClose, onClearAllNotes }) {
+  const [exportFormat, setExportFormat] = useState('markdown')
+  const [showClearConfirm, setShowClearConfirm] = useState(false)
+
+  if (!isOpen) return null
+
+  // Filter notes that have content
+  const notesWithContent = Object.entries(notes).filter(([_, content]) => content && content.trim())
+
+  // Generate markdown content
+  const generateMarkdown = () => {
+    let markdown = '# 논문 노트 모음\n\n'
+    markdown += `생성 일시: ${new Date().toLocaleString('ko-KR')}\n\n`
+    markdown += '---\n\n'
+
+    notesWithContent.forEach(([filePath, content]) => {
+      const fileName = filePath.split(/[\\\/]/).pop()
+      markdown += `## 📄 ${fileName}\n\n`
+      markdown += `${content}\n\n`
+      markdown += '---\n\n'
+    })
+
+    return markdown
+  }
+
+  // Generate plain text content
+  const generatePlainText = () => {
+    let text = '논문 노트 모음\n'
+    text += `생성 일시: ${new Date().toLocaleString('ko-KR')}\n\n`
+    text += '='.repeat(50) + '\n\n'
+
+    notesWithContent.forEach(([filePath, content]) => {
+      const fileName = filePath.split(/[\\\/]/).pop()
+      text += `[${fileName}]\n\n`
+      text += `${content}\n\n`
+      text += '-'.repeat(50) + '\n\n'
+    })
+
+    return text
+  }
+
+  // Export notes function
+  const handleExport = async () => {
+    let content = ''
+    let filename = ''
+    let mimeType = ''
+
+    if (exportFormat === 'markdown') {
+      content = generateMarkdown()
+      filename = `notes_${new Date().toISOString().slice(0,10)}.md`
+      mimeType = 'text/markdown'
+    } else {
+      content = generatePlainText()
+      filename = `notes_${new Date().toISOString().slice(0,10)}.txt`
+      mimeType = 'text/plain'
+    }
+
+    // Create blob and download
+    const blob = new Blob([content], { type: mimeType })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  // Handle clear all notes
+  const handleClearAll = () => {
+    onClearAllNotes()
+    setShowClearConfirm(false)
+    onClose()
+  }
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal" style={{ maxWidth: '800px', width: '90%' }}>
+        <div className="modal-header">
+          <div className="modal-title">노트 모음</div>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+
+        <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+          {notesWithContent.length === 0 ? (
+            <div style={{
+              textAlign: 'center',
+              padding: '40px',
+              color: 'var(--text-muted)',
+              fontSize: '13px'
+            }}>
+              작성된 노트가 없습니다
+            </div>
+          ) : (
+            <div className="notes-collection">
+              <div style={{
+                marginBottom: '16px',
+                padding: '8px',
+                background: 'var(--vscode-panel-bg)',
+                borderRadius: '4px',
+                fontSize: '12px',
+                color: 'var(--text-muted)'
+              }}>
+                총 {notesWithContent.length}개 문서에 노트가 작성되었습니다
+              </div>
+
+              {notesWithContent.map(([filePath, content]) => {
+                const fileName = filePath.split(/[\\\/]/).pop()
+                return (
+                  <div key={filePath} style={{
+                    marginBottom: '24px',
+                    padding: '16px',
+                    background: 'var(--vscode-editor-bg)',
+                    borderRadius: '4px',
+                    border: '1px solid var(--border)'
+                  }}>
+                    <div style={{
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      marginBottom: '12px',
+                      color: 'var(--vscode-foreground)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}>
+                      <span>📄</span>
+                      <span title={filePath}>{fileName}</span>
+                    </div>
+                    <div style={{
+                      fontSize: '13px',
+                      lineHeight: '1.6',
+                      whiteSpace: 'pre-wrap',
+                      color: 'var(--text)'
+                    }}>
+                      {content}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="modal-footer">
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginRight: 'auto' }}>
+            {!showClearConfirm ? (
+              <>
+                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>내보내기 형식:</label>
+                <select
+                  className="form-input"
+                  style={{ width: '120px', fontSize: '12px' }}
+                  value={exportFormat}
+                  onChange={(e) => setExportFormat(e.target.value)}
+                >
+                  <option value="markdown">Markdown</option>
+                  <option value="text">Plain Text</option>
+                </select>
+              </>
+            ) : (
+              <span style={{ fontSize: '12px', color: 'var(--vscode-errorForeground)' }}>
+                정말로 모든 노트를 삭제하시겠습니까?
+              </span>
+            )}
+          </div>
+
+          {!showClearConfirm ? (
+            <>
+              <button
+                className="btn btn-secondary"
+                onClick={handleExport}
+                disabled={notesWithContent.length === 0}
+              >
+                내보내기
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setShowClearConfirm(true)}
+                disabled={notesWithContent.length === 0}
+                style={{
+                  background: 'var(--vscode-button-bg)',
+                  color: 'var(--vscode-errorForeground)'
+                }}
+              >
+                모두 삭제
+              </button>
+              <button className="btn btn-primary" onClick={onClose}>닫기</button>
+            </>
+          ) : (
+            <>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setShowClearConfirm(false)}
+              >
+                취소
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={handleClearAll}
+                style={{
+                  background: 'var(--vscode-errorBackground)',
+                  color: 'white'
+                }}
+              >
+                삭제 확인
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Settings Modal
 function SettingsModal({ isOpen, settings, onSave, onClose }) {
   const [localSettings, setLocalSettings] = useState(settings)
@@ -261,17 +510,19 @@ function ActivityBar({ activeView, onViewChange, processing, onSettings, onExit 
 }
 
 // Sidebar Content
-function SidebarContent({ 
-  view, 
+function SidebarContent({
+  view,
   workspace,
-  files, 
-  included, 
-  onToggleFile, 
-  onSelectAll, 
+  files,
+  included,
+  onToggleFile,
+  onSelectAll,
   onClearAll,
   activeDoc,
   notes,
-  onUpdateNotes
+  onUpdateNotes,
+  onShowNotesCollection,
+  onClearAllNotes
 }) {
   if (view === 'files') {
     return (
@@ -312,12 +563,49 @@ function SidebarContent({
 
   if (view === 'notes') {
     const noteValue = activeDoc ? notes[activeDoc] || '' : ''
-    
+    const hasAnyNotes = Object.values(notes).some(note => note && note.trim())
+
     return (
       <div className="sidebar-content">
         <div className="notes-section" style={{ height: '100%', borderTop: 'none' }}>
-          <div className="notes-header">
-            NOTES
+          <div className="notes-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>NOTES</span>
+            {hasAnyNotes && (
+              <div style={{ display: 'flex', gap: '4px' }}>
+                <button
+                  className="btn btn-secondary"
+                  style={{
+                    fontSize: '10px',
+                    padding: '2px 6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                  onClick={onShowNotesCollection}
+                  title="모든 노트 보기"
+                >
+                  <span style={{ fontSize: '12px' }}>📝</span>
+                  모아보기
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  style={{
+                    fontSize: '10px',
+                    padding: '2px 6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    background: 'var(--vscode-button-bg)',
+                    color: 'var(--vscode-errorForeground)'
+                  }}
+                  onClick={onClearAllNotes}
+                  title="모든 노트 초기화"
+                >
+                  <span style={{ fontSize: '12px' }}>🗑️</span>
+                  초기화
+                </button>
+              </div>
+            )}
           </div>
           <div className="notes-content">
             {!activeDoc ? (
@@ -1462,6 +1750,8 @@ export default function App() {
   
   const [notes, setNotes] = useState({})
   const [showSettings, setShowSettings] = useState(false)
+  const [showNotesCollection, setShowNotesCollection] = useState(false)
+  const [showClearNotesConfirm, setShowClearNotesConfirm] = useState(false)
   
   // UI State
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -1702,6 +1992,8 @@ export default function App() {
           activeDoc={activeDoc}
           notes={notes}
           onUpdateNotes={setNotes}
+          onShowNotesCollection={() => setShowNotesCollection(true)}
+          onClearAllNotes={() => setShowClearNotesConfirm(true)}
         />
       </div>
 
@@ -1836,6 +2128,28 @@ export default function App() {
         settings={settings}
         onSave={saveSettings}
         onClose={() => setShowSettings(false)}
+      />
+
+      <NotesCollectionModal
+        isOpen={showNotesCollection}
+        notes={notes}
+        files={files}
+        onClose={() => setShowNotesCollection(false)}
+        onClearAllNotes={() => setNotes({})}
+      />
+
+      <ConfirmationModal
+        isOpen={showClearNotesConfirm}
+        title="노트 초기화"
+        message="모든 노트가 삭제됩니다. 이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?"
+        confirmText="초기화"
+        cancelText="취소"
+        isDanger={true}
+        onConfirm={() => {
+          setNotes({})
+          setShowClearNotesConfirm(false)
+        }}
+        onCancel={() => setShowClearNotesConfirm(false)}
       />
     </div>
   )
