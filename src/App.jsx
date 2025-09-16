@@ -1965,7 +1965,6 @@ export default function App() {
       }
       setWorkspace(result.root)
       setFiles(result.files)
-      setIncluded(new Set(result.files))
       await window.api.setIncludeFiles(result.files)
       setProcessed(false)
       setStatus(`워크스페이스 설정 완료 (${result.files.length}개 PDF)`)
@@ -2272,7 +2271,6 @@ ${JSON.stringify(exportData, null, 2)}
     await window.api.resetWorkspace()
     setWorkspace(null)
     setFiles([])
-    setIncluded(new Set())
     setResults([])
     setProcessed(false)
     setProcessing(false)
