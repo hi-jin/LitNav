@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld('api', {
   cancelPreprocess: () => ipcRenderer.invoke('preprocess-cancel'),
   search: (args) => ipcRenderer.invoke('search', args),
   exhaustiveSearch: (args) => ipcRenderer.invoke('exhaustive-search', args),
-  cancelExhaustiveSearch: () => ipcRenderer.invoke('exhaustive-search-cancel'),
+  cancelExhaustiveSearch: (args) => ipcRenderer.invoke('exhaustive-search-cancel', args),
   resolveFileUrl: (filePath) => ipcRenderer.invoke('resolve-file-url', filePath),
   loadPdfData: (filePath) => ipcRenderer.invoke('load-pdf-data', filePath),
   onPreprocessProgress: (cb) => {
