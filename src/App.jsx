@@ -1890,15 +1890,76 @@ export default function App() {
   const showExhaustiveResults = currentState.showExhaustiveResults
   const exhaustiveActiveTab = currentState.exhaustiveActiveTab
   
-  // Convenience setters for current mode
-  const setQuery = (value) => setCurrentState(prev => ({ ...prev, query: value }))
-  const setResults = (value) => setCurrentState(prev => ({ ...prev, results: value }))
-  const setStatus = (value) => setCurrentState(prev => ({ ...prev, status: value }))
-  const setExhaustiveSearchRunning = (value) => setCurrentState(prev => ({ ...prev, exhaustiveSearchRunning: value }))
-  const setExhaustiveSearchProgress = (value) => setCurrentState(prev => ({ ...prev, exhaustiveSearchProgress: value }))
-  const setExhaustiveSearchResults = (value) => setCurrentState(prev => ({ ...prev, exhaustiveSearchResults: value }))
-  const setShowExhaustiveResults = (value) => setCurrentState(prev => ({ ...prev, showExhaustiveResults: value }))
-  const setExhaustiveActiveTab = (value) => setCurrentState(prev => ({ ...prev, exhaustiveActiveTab: value }))
+  // Convenience setters for current mode - wrapped with useCallback to prevent stale closures
+  const setQuery = useCallback((value) => {
+    if (documentMode === 'multi') {
+      setMultiDocState(prev => ({ ...prev, query: value }))
+    } else {
+      setSingleDocState(prev => ({ ...prev, query: value }))
+    }
+  }, [documentMode])
+
+  const setResults = useCallback((value) => {
+    if (documentMode === 'multi') {
+      setMultiDocState(prev => ({ ...prev, results: value }))
+    } else {
+      setSingleDocState(prev => ({ ...prev, results: value }))
+    }
+  }, [documentMode])
+
+  const setStatus = useCallback((value) => {
+    if (documentMode === 'multi') {
+      setMultiDocState(prev => ({ ...prev, status: value }))
+    } else {
+      setSingleDocState(prev => ({ ...prev, status: value }))
+    }
+  }, [documentMode])
+
+  const setExhaustiveSearchRunning = useCallback((value) => {
+    if (documentMode === 'multi') {
+      setMultiDocState(prev => ({ ...prev, exhaustiveSearchRunning: value }))
+    } else {
+      setSingleDocState(prev => ({ ...prev, exhaustiveSearchRunning: value }))
+    }
+  }, [documentMode])
+
+  const setExhaustiveSearchProgress = useCallback((value) => {
+    if (documentMode === 'multi') {
+      setMultiDocState(prev => ({ ...prev, exhaustiveSearchProgress: value }))
+    } else {
+      setSingleDocState(prev => ({ ...prev, exhaustiveSearchProgress: value }))
+    }
+  }, [documentMode])
+
+  const setExhaustiveSearchResults = useCallback((valueOrCallback) => {
+    if (documentMode === 'multi') {
+      setMultiDocState(prev => ({ 
+        ...prev, 
+        exhaustiveSearchResults: typeof valueOrCallback === 'function' ? valueOrCallback(prev.exhaustiveSearchResults) : valueOrCallback
+      }))
+    } else {
+      setSingleDocState(prev => ({ 
+        ...prev, 
+        exhaustiveSearchResults: typeof valueOrCallback === 'function' ? valueOrCallback(prev.exhaustiveSearchResults) : valueOrCallback
+      }))
+    }
+  }, [documentMode])
+
+  const setShowExhaustiveResults = useCallback((value) => {
+    if (documentMode === 'multi') {
+      setMultiDocState(prev => ({ ...prev, showExhaustiveResults: value }))
+    } else {
+      setSingleDocState(prev => ({ ...prev, showExhaustiveResults: value }))
+    }
+  }, [documentMode])
+
+  const setExhaustiveActiveTab = useCallback((value) => {
+    if (documentMode === 'multi') {
+      setMultiDocState(prev => ({ ...prev, exhaustiveActiveTab: value }))
+    } else {
+      setSingleDocState(prev => ({ ...prev, exhaustiveActiveTab: value }))
+    }
+  }, [documentMode])
   
   // Multi-doc specific setters
   const setIncluded = (value) => setMultiDocState(prev => ({ ...prev, included: value }))
@@ -2064,6 +2125,7 @@ export default function App() {
       setShowExhaustiveResults(true)
       setStatus('Exhaustive search started...')
       
+      console.log('🔥 Starting exhaustive search with mode:', documentMode)
       await window.api.exhaustiveSearch({ 
         query: searchQuery,
         documentFilter,
@@ -2229,12 +2291,13 @@ export default function App() {
         setStatus(`오류: ${error?.message || '전처리 실패'}`)
       }),
       window.api.onExhaustiveSearchStart((data) => {
+        console.log('🚀 Search Start:', { dataMode: data.mode, currentMode: documentMode, match: data.mode === documentMode })
         if (data.mode === documentMode) {
           setExhaustiveSearchProgress({ current: 0, total: data.total })
         }
       }),
       window.api.onExhaustiveSearchProgress((data) => {
-        console.log('Progress received:', { dataMode: data.mode, currentMode: documentMode, result: data.result })
+        console.log('⚡ Progress received:', { dataMode: data.mode, currentMode: documentMode, match: data.mode === documentMode, result: data.result })
         if (data.mode === documentMode) {
           setExhaustiveSearchProgress({ 
             current: data.current, 
@@ -2244,8 +2307,12 @@ export default function App() {
           
           // Classify and add result
           const result = data.result
-          console.log('Adding result:', result)
+          console.log('✅ Adding result:', result)
+          console.log('🔥 About to call setExhaustiveSearchResults, current mode:', documentMode)
+          console.log('🔥 setExhaustiveSearchResults function:', typeof setExhaustiveSearchResults, setExhaustiveSearchResults)
+          
           setExhaustiveSearchResults(prev => {
+            console.log('🔥 Inside setExhaustiveSearchResults callback, prev:', prev)
             const newResults = { ...prev }
             if (result.classification === 1) {
               newResults.relevant = [...(prev.relevant || []), result]
@@ -2254,12 +2321,15 @@ export default function App() {
             } else {
               newResults.uncertain = [...(prev.uncertain || []), result]
             }
-            console.log('New results state:', newResults)
+            console.log('📊 New results state:', newResults)
             return newResults
           })
+        } else {
+          console.log('❌ Mode mismatch - skipping result')
         }
       }),
       window.api.onExhaustiveSearchComplete((data) => {
+        console.log('🏁 Search Complete:', { dataMode: data.mode, currentMode: documentMode, match: data.mode === documentMode })
         if (data.mode === documentMode) {
           setExhaustiveSearchRunning(false)
           setExhaustiveSearchProgress(null)
@@ -2284,7 +2354,9 @@ export default function App() {
     ]
     
     return () => cleanup.forEach(fn => fn())
-  }, [settings.embeddingHost, settings.embeddingModel, documentMode])
+  }, [settings.embeddingHost, settings.embeddingModel, documentMode, 
+      setExhaustiveSearchResults, setExhaustiveSearchRunning, setExhaustiveSearchProgress, 
+      setStatus, setShowExhaustiveResults])
 
   // Render
   if (!workspace) {
@@ -2498,27 +2570,43 @@ export default function App() {
             {/* Exhaustive Search Results */}
             <div className="results-container" style={{ display: showExhaustiveResults ? 'block' : 'none' }}>
               {(() => {
-                console.log('UI Check Debug:', {
+                // Direct access to avoid function reference issues
+                let actualResults
+                if (documentMode === 'multi') {
+                  actualResults = multiDocState.exhaustiveSearchResults || { relevant: [], nonRelevant: [], uncertain: [] }
+                } else {
+                  actualResults = singleDocState.exhaustiveSearchResults || { relevant: [], nonRelevant: [], uncertain: [] }
+                }
+                const resultArrays = Object.values(actualResults)
+                const hasNoResults = resultArrays.every(arr => !Array.isArray(arr) || arr.length === 0)
+
+                console.log('🔍 UI State Check Comprehensive:', {
                   documentMode,
-                  multiDocStateType: typeof multiDocState,
-                  multiDocState: multiDocState,
-                  singleDocStateType: typeof singleDocState,
-                  singleDocState: singleDocState,
-                  currentStateType: typeof currentState,
-                  currentState: currentState,
-                  exhaustiveSearchResults,
-                  typeOfExhaustiveSearchResults: typeof exhaustiveSearchResults
-                })
-                
-                const actualResults = currentState.exhaustiveSearchResults
-                const hasNoResults = Object.values(actualResults).every(arr => !arr || arr.length === 0)
-                console.log('UI Check Final:', { 
+                  multiState: {
+                    running: multiDocState.exhaustiveSearchRunning,
+                    progress: multiDocState.exhaustiveSearchProgress,
+                    resultCounts: {
+                      relevant: multiDocState.exhaustiveSearchResults?.relevant?.length || 0,
+                      nonRelevant: multiDocState.exhaustiveSearchResults?.nonRelevant?.length || 0,
+                      uncertain: multiDocState.exhaustiveSearchResults?.uncertain?.length || 0
+                    }
+                  },
+                  singleState: {
+                    running: singleDocState.exhaustiveSearchRunning,
+                    progress: singleDocState.exhaustiveSearchProgress,
+                    resultCounts: {
+                      relevant: singleDocState.exhaustiveSearchResults?.relevant?.length || 0,
+                      nonRelevant: singleDocState.exhaustiveSearchResults?.nonRelevant?.length || 0,
+                      uncertain: singleDocState.exhaustiveSearchResults?.uncertain?.length || 0
+                    }
+                  },
+                  currentStateActive: documentMode,
                   actualResults, 
-                  values: Object.values(actualResults),
+                  resultArrays,
                   hasNoResults,
-                  showExhaustiveResults,
                   exhaustiveSearchRunning
                 })
+                
                 return hasNoResults
               })() ? (
                 <div style={{ 
@@ -2551,7 +2639,7 @@ export default function App() {
                         fontWeight: exhaustiveActiveTab === 'relevant' ? 'bold' : 'normal'
                       }}
                     >
-                      Relevant ({currentState.exhaustiveSearchResults.relevant?.length || 0})
+                      Relevant ({documentMode === 'multi' ? (multiDocState.exhaustiveSearchResults.relevant?.length || 0) : (singleDocState.exhaustiveSearchResults.relevant?.length || 0)})
                     </button>
                     <button 
                       onClick={() => setExhaustiveActiveTab('nonRelevant')}
@@ -2566,7 +2654,7 @@ export default function App() {
                         fontWeight: exhaustiveActiveTab === 'nonRelevant' ? 'bold' : 'normal'
                       }}
                     >
-                      Non-relevant ({currentState.exhaustiveSearchResults.nonRelevant?.length || 0})
+                      Non-relevant ({documentMode === 'multi' ? (multiDocState.exhaustiveSearchResults.nonRelevant?.length || 0) : (singleDocState.exhaustiveSearchResults.nonRelevant?.length || 0)})
                     </button>
                     <button 
                       onClick={() => setExhaustiveActiveTab('uncertain')}
@@ -2581,14 +2669,19 @@ export default function App() {
                         fontWeight: exhaustiveActiveTab === 'uncertain' ? 'bold' : 'normal'
                       }}
                     >
-                      Uncertain ({currentState.exhaustiveSearchResults.uncertain?.length || 0})
+                      Uncertain ({documentMode === 'multi' ? (multiDocState.exhaustiveSearchResults.uncertain?.length || 0) : (singleDocState.exhaustiveSearchResults.uncertain?.length || 0)})
                     </button>
                   </div>
                   
                   {/* Tab Content */}
                   <div className="exhaustive-tab-content">
                     {(() => {
-                      const actualResults = currentState.exhaustiveSearchResults
+                      let actualResults
+                      if (documentMode === 'multi') {
+                        actualResults = multiDocState.exhaustiveSearchResults
+                      } else {
+                        actualResults = singleDocState.exhaustiveSearchResults
+                      }
                       const currentResults = actualResults[exhaustiveActiveTab] || []
                       
                       if (currentResults.length === 0) {
