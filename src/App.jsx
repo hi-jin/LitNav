@@ -2128,6 +2128,114 @@ export default function App() {
   const canExhaustiveSearch = () => {
     return canSearch() && settings.llmHost && settings.llmModel && !currentState.exhaustiveSearchRunning
   }
+
+  // Export functions
+  const exportEmbeddingResults = useCallback(async () => {
+    if (!results || results.length === 0) return
+
+    try {
+      const exportData = {
+        query,
+        timestamp: new Date().toISOString(),
+        type: 'embedding_search',
+        documentMode,
+        results: results.map(result => ({
+          document: result.path,
+          hits: result.hits.map(hit => ({
+            page: hit.page,
+            score: hit.score,
+            text: hit.text
+          }))
+        }))
+      }
+
+      const formattedText = `# Embedding Search Results
+Query: ${query}
+Date: ${new Date().toLocaleString()}
+Document Mode: ${documentMode}
+Total Documents: ${results.length}
+
+${results.map(result => `## ${result.path.split(/[\\\\/]/).pop()}
+
+${result.hits.map(hit => `### Page ${hit.page} (Score: ${hit.score.toFixed(3)})
+${hit.text}
+`).join('\n')}
+`).join('\n')}
+
+---
+Raw JSON Data:
+\`\`\`json
+${JSON.stringify(exportData, null, 2)}
+\`\`\`
+`
+
+      await window.api.writeToClipboard(formattedText)
+      console.log('Embedding search results copied to clipboard')
+      
+      // Show temporary feedback
+      setStatus('결과가 클립보드에 복사되었습니다')
+      setTimeout(() => setStatus(null), 2000)
+    } catch (error) {
+      console.error('Failed to export embedding results:', error)
+      setStatus('복사 중 오류가 발생했습니다')
+      setTimeout(() => setStatus(null), 2000)
+    }
+  }, [results, query, documentMode, setStatus])
+
+  const exportExhaustiveResults = useCallback(async () => {
+    const exhaustiveResults = currentState.exhaustiveSearchResults
+    if (!exhaustiveResults || !exhaustiveResults.relevant || exhaustiveResults.relevant.length === 0) return
+
+    try {
+      const exportData = {
+        query,
+        timestamp: new Date().toISOString(),
+        type: 'exhaustive_search_relevant',
+        documentMode,
+        totalProcessed: (exhaustiveResults.relevant?.length || 0) + (exhaustiveResults.nonRelevant?.length || 0) + (exhaustiveResults.uncertain?.length || 0),
+        relevantResults: exhaustiveResults.relevant.map(result => ({
+          document: result.path,
+          page: result.page,
+          text: result.text,
+          classification: result.classification
+        }))
+      }
+
+      const formattedText = `# Exhaustive Search Results (Relevant Only)
+Query: ${query}
+Date: ${new Date().toLocaleString()}
+Document Mode: ${documentMode}
+Relevant Results: ${exhaustiveResults.relevant.length}
+Total Processed: ${exportData.totalProcessed}
+
+${exhaustiveResults.relevant.map((result, index) => `## Result ${index + 1}
+**Document:** ${result.path.split(/[\\\\/]/).pop()}
+**Page:** ${result.page}
+**Classification:** ${result.classification}
+
+${result.text}
+
+---
+`).join('\n')}
+
+Raw JSON Data:
+\`\`\`json
+${JSON.stringify(exportData, null, 2)}
+\`\`\`
+`
+
+      await window.api.writeToClipboard(formattedText)
+      console.log('Exhaustive search results (relevant) copied to clipboard')
+      
+      // Show temporary feedback
+      setStatus('관련 결과가 클립보드에 복사되었습니다')
+      setTimeout(() => setStatus(null), 2000)
+    } catch (error) {
+      console.error('Failed to export exhaustive results:', error)
+      setStatus('복사 중 오류가 발생했습니다')
+      setTimeout(() => setStatus(null), 2000)
+    }
+  }, [currentState.exhaustiveSearchResults, query, documentMode, setStatus])
   
   const classifyExhaustiveResult = (resultId, newClassification) => {
     setExhaustiveSearchResults(prev => {
@@ -2488,6 +2596,36 @@ export default function App() {
             
             {/* Embedding Search Results */}
             <div className="results-container" style={{ display: !showExhaustiveResults ? 'block' : 'none' }}>
+              {results.length > 0 && (
+                <div style={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center', 
+                  marginBottom: '12px', 
+                  padding: '8px',
+                  background: 'var(--background-secondary)',
+                  borderRadius: '4px'
+                }}>
+                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    {results.length}개 문서에서 {results.reduce((total, r) => total + (r.hits?.length || 0), 0)}개 결과 발견
+                  </span>
+                  <button 
+                    onClick={exportEmbeddingResults}
+                    style={{
+                      padding: '4px 8px',
+                      background: 'var(--vscode-button-bg)',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '3px',
+                      fontSize: '11px',
+                      cursor: 'pointer'
+                    }}
+                    title="검색 결과를 클립보드로 복사"
+                  >
+                    📋 클립보드로 복사
+                  </button>
+                </div>
+              )}
               {results.length === 0 ? (
                 <div style={{ 
                   textAlign: 'center', 
@@ -2541,6 +2679,7 @@ export default function App() {
                 }
                 const resultArrays = Object.values(actualResults)
                 const hasNoResults = resultArrays.every(arr => !Array.isArray(arr) || arr.length === 0)
+                const hasRelevantResults = actualResults.relevant && actualResults.relevant.length > 0
 
                 console.log('🔍 UI State Check Comprehensive:', {
                   documentMode,
@@ -2581,6 +2720,49 @@ export default function App() {
                 </div>
               ) : (
                 <div className="exhaustive-results">
+                  {/* Export button for relevant results */}
+                  {(() => {
+                    let actualResults
+                    if (documentMode === 'multi') {
+                      actualResults = multiDocState.exhaustiveSearchResults || { relevant: [], nonRelevant: [], uncertain: [] }
+                    } else {
+                      actualResults = singleDocState.exhaustiveSearchResults || { relevant: [], nonRelevant: [], uncertain: [] }
+                    }
+                    const hasRelevantResults = actualResults.relevant && actualResults.relevant.length > 0
+                    
+                    return hasRelevantResults && (
+                      <div style={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center', 
+                        marginBottom: '12px', 
+                        padding: '8px',
+                        background: 'var(--background-secondary)',
+                        borderRadius: '4px'
+                      }}>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                          총 {(actualResults.relevant?.length || 0) + (actualResults.nonRelevant?.length || 0) + (actualResults.uncertain?.length || 0)}개 처리됨, 
+                          관련 결과 {actualResults.relevant?.length || 0}개
+                        </span>
+                        <button 
+                          onClick={exportExhaustiveResults}
+                          style={{
+                            padding: '4px 8px',
+                            background: 'var(--success-bg)',
+                            color: 'var(--success-color)',
+                            border: 'none',
+                            borderRadius: '3px',
+                            fontSize: '11px',
+                            cursor: 'pointer'
+                          }}
+                          title="관련 결과만 클립보드로 복사"
+                        >
+                          📋 관련 결과 복사
+                        </button>
+                      </div>
+                    )
+                  })()}
+                  
                   {/* Category Tabs */}
                   <div className="exhaustive-tabs" style={{ 
                     display: 'flex', 

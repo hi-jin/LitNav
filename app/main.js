@@ -1,5 +1,5 @@
 const electronModule = require('electron')
-const { app, BrowserWindow, dialog, ipcMain, shell, nativeTheme } = electronModule
+const { app, BrowserWindow, dialog, ipcMain, shell, nativeTheme, clipboard } = electronModule
 const path = require('node:path')
 const fs = require('node:fs')
 const url = require('node:url')
@@ -258,6 +258,11 @@ const searchStates = {
 // IPC handlers
 ipcMain.handle('get-platform', () => {
   return process.platform
+})
+
+ipcMain.handle('write-to-clipboard', (_, text) => {
+  clipboard.writeText(text)
+  return true
 })
 
 ipcMain.handle('select-workspace', async () => {
