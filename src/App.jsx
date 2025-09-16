@@ -550,35 +550,99 @@ function SidebarContent({
   notes,
   onUpdateNotes,
   onShowNotesCollection,
-  onClearAllNotes
+  onClearAllNotes,
+  documentMode,
+  onDocumentModeChange,
+  selectedDocument,
+  onDocumentSelect
 }) {
   if (view === 'files') {
     return (
       <div className="sidebar-content">
+        {/* Document Mode Toggle */}
+        <div className="document-mode-toggle" style={{ 
+          padding: '8px', 
+          borderBottom: '1px solid var(--border)', 
+          marginBottom: '8px' 
+        }}>
+          <div style={{ 
+            display: 'flex', 
+            background: 'var(--background-secondary)', 
+            borderRadius: '4px',
+            padding: '2px'
+          }}>
+            <button 
+              onClick={() => onDocumentModeChange('multi')}
+              style={{
+                flex: 1,
+                padding: '6px 12px',
+                background: documentMode === 'multi' ? 'var(--primary)' : 'transparent',
+                color: documentMode === 'multi' ? 'white' : 'var(--text-secondary)',
+                border: 'none',
+                borderRadius: '3px',
+                cursor: 'pointer',
+                fontSize: '11px',
+                fontWeight: documentMode === 'multi' ? 'bold' : 'normal'
+              }}
+            >
+              Multi-Doc
+            </button>
+            <button 
+              onClick={() => onDocumentModeChange('single')}
+              style={{
+                flex: 1,
+                padding: '6px 12px',
+                background: documentMode === 'single' ? 'var(--primary)' : 'transparent',
+                color: documentMode === 'single' ? 'white' : 'var(--text-secondary)',
+                border: 'none',
+                borderRadius: '3px',
+                cursor: 'pointer',
+                fontSize: '11px',
+                fontWeight: documentMode === 'single' ? 'bold' : 'normal'
+              }}
+            >
+              Single-Doc
+            </button>
+          </div>
+        </div>
+
         <div className="file-tree">
           <div className="file-tree-header">
             <span>PDF FILES ({files.length})</span>
-            <div className="flex gap-2">
-              <button className="btn btn-secondary" style={{ fontSize: '10px', padding: '2px 6px' }} onClick={onSelectAll}>
-                All
-              </button>
-              <button className="btn btn-secondary" style={{ fontSize: '10px', padding: '2px 6px' }} onClick={onClearAll}>
-                None
-              </button>
-            </div>
+            {documentMode === 'multi' && (
+              <div className="flex gap-2">
+                <button className="btn btn-secondary" style={{ fontSize: '10px', padding: '2px 6px' }} onClick={onSelectAll}>
+                  All
+                </button>
+                <button className="btn btn-secondary" style={{ fontSize: '10px', padding: '2px 6px' }} onClick={onClearAll}>
+                  None
+                </button>
+              </div>
+            )}
           </div>
           {files.map((file) => (
-            <div key={file} className="file-item">
-              <input
-                type="checkbox"
-                checked={included.has(file)}
-                onChange={() => onToggleFile(file)}
-              />
+            <div 
+              key={file} 
+              className={`file-item ${documentMode === 'single' && selectedDocument === file ? 'selected' : ''}`}
+            >
+              {documentMode === 'multi' && (
+                <input
+                  type="checkbox"
+                  checked={included.has(file)}
+                  onChange={() => onToggleFile(file)}
+                />
+              )}
               <div 
                 className="file-name" 
                 title={file}
                 style={{ cursor: 'pointer' }}
-                onClick={() => onToggleFile(file)}
+                onClick={() => {
+                  if (documentMode === 'multi') {
+                    onToggleFile(file)
+                  } else {
+                    onDocumentSelect(file)
+                  }
+                }}
               >
                 {file.split(/[\\\\/]/).pop()}
               </div>
@@ -1752,7 +1816,6 @@ export default function App() {
   // State Management
   const [workspace, setWorkspace] = useState(null)
   const [files, setFiles] = useState([])
-  const [included, setIncluded] = useState(new Set())
   const [settings, setSettings] = useState({
     embeddingHost: '',
     embeddingModel: '',
@@ -1766,38 +1829,82 @@ export default function App() {
   })
   const [lastEmbedConfig, setLastEmbedConfig] = useState(null)
 
-  const [status, setStatus] = useState(null)
   const [processing, setProcessing] = useState(false)
   const [processed, setProcessed] = useState(false)
   const [progressData, setProgressData] = useState(null)
   
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState([])
+  // Multi-Doc State
+  const [multiDocState, setMultiDocState] = useState({
+    included: new Set(),
+    query: '',
+    results: [],
+    status: null,
+    exhaustiveSearchRunning: false,
+    exhaustiveSearchProgress: null,
+    exhaustiveSearchResults: { relevant: [], nonRelevant: [], uncertain: [] },
+    showExhaustiveResults: false,
+    exhaustiveActiveTab: 'relevant'
+  })
   
+  // Single-Doc State  
+  const [singleDocState, setSingleDocState] = useState({
+    selectedDocument: null,
+    query: '',
+    results: [],
+    status: null,
+    exhaustiveSearchRunning: false,
+    exhaustiveSearchProgress: null,
+    exhaustiveSearchResults: { relevant: [], nonRelevant: [], uncertain: [] },
+    showExhaustiveResults: false,
+    exhaustiveActiveTab: 'relevant'
+  })
+  
+  // Shared State (common to both modes)
   const [activeDoc, setActiveDoc] = useState(null)
   const [activePage, setActivePage] = useState(null)
   const [activeSnippet, setActiveSnippet] = useState('')
-  const [activeSnippetCoords, setActiveSnippetCoords] = useState(null) // Store coordinates for precise highlighting
-  
+  const [activeSnippetCoords, setActiveSnippetCoords] = useState(null)
   const [notes, setNotes] = useState({})
   const [showSettings, setShowSettings] = useState(false)
   const [showNotesCollection, setShowNotesCollection] = useState(false)
   const [showClearNotesConfirm, setShowClearNotesConfirm] = useState(false)
   
-  // Exhaustive Search State
-  const [exhaustiveSearchRunning, setExhaustiveSearchRunning] = useState(false)
-  const [exhaustiveSearchProgress, setExhaustiveSearchProgress] = useState(null)
-  const [exhaustiveSearchResults, setExhaustiveSearchResults] = useState({
-    relevant: [],
-    nonRelevant: [],
-    uncertain: []
-  })
-  const [showExhaustiveResults, setShowExhaustiveResults] = useState(false)
-  const [exhaustiveActiveTab, setExhaustiveActiveTab] = useState('relevant')
-  
   // UI State
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [activeView, setActiveView] = useState('files')
+  const [documentMode, setDocumentMode] = useState('multi') // 'multi' or 'single'
+  
+  // Current mode state getters
+  const currentState = documentMode === 'multi' ? multiDocState : singleDocState
+  const setCurrentState = documentMode === 'multi' ? setMultiDocState : setSingleDocState
+  
+  // Convenience getters for current mode
+  const included = multiDocState.included
+  const selectedDocument = singleDocState.selectedDocument
+  const query = currentState.query
+  const results = currentState.results
+  const status = currentState.status
+  const exhaustiveSearchRunning = currentState.exhaustiveSearchRunning
+  const exhaustiveSearchProgress = currentState.exhaustiveSearchProgress
+  const exhaustiveSearchResults = currentState.exhaustiveSearchResults
+  const showExhaustiveResults = currentState.showExhaustiveResults
+  const exhaustiveActiveTab = currentState.exhaustiveActiveTab
+  
+  // Convenience setters for current mode
+  const setQuery = (value) => setCurrentState(prev => ({ ...prev, query: value }))
+  const setResults = (value) => setCurrentState(prev => ({ ...prev, results: value }))
+  const setStatus = (value) => setCurrentState(prev => ({ ...prev, status: value }))
+  const setExhaustiveSearchRunning = (value) => setCurrentState(prev => ({ ...prev, exhaustiveSearchRunning: value }))
+  const setExhaustiveSearchProgress = (value) => setCurrentState(prev => ({ ...prev, exhaustiveSearchProgress: value }))
+  const setExhaustiveSearchResults = (value) => setCurrentState(prev => ({ ...prev, exhaustiveSearchResults: value }))
+  const setShowExhaustiveResults = (value) => setCurrentState(prev => ({ ...prev, showExhaustiveResults: value }))
+  const setExhaustiveActiveTab = (value) => setCurrentState(prev => ({ ...prev, exhaustiveActiveTab: value }))
+  
+  // Multi-doc specific setters
+  const setIncluded = (value) => setMultiDocState(prev => ({ ...prev, included: value }))
+  
+  // Single-doc specific setters  
+  const setSelectedDocument = (value) => setSingleDocState(prev => ({ ...prev, selectedDocument: value }))
 
   // Event Handlers
   const selectWorkspace = async () => {
@@ -1894,8 +2001,24 @@ export default function App() {
         setStatus('먼저 전처리를 완료하세요.')
         return
       }
+      
+      // Determine document filter based on mode
+      let documentFilter = null
+      if (documentMode === 'multi') {
+        documentFilter = Array.from(multiDocState.included)
+      } else if (documentMode === 'single' && singleDocState.selectedDocument) {
+        documentFilter = [singleDocState.selectedDocument]
+      } else if (documentMode === 'single' && !singleDocState.selectedDocument) {
+        setStatus('Please select a document first.')
+        return
+      }
+      
       setStatus('검색 중...')
-      const searchResults = await window.api.search({ query, perDocN: settings.perDocN })
+      const searchResults = await window.api.search({ 
+        query, 
+        perDocN: settings.perDocN,
+        documentFilter 
+      })
       setResults(searchResults)
       setStatus(`검색 완료: ${searchResults.length}개 문서`)
     } catch (error) {
@@ -1924,13 +2047,28 @@ export default function App() {
       return
     }
     
+    // Determine document filter based on mode
+    let documentFilter = null
+    if (documentMode === 'multi') {
+      documentFilter = Array.from(multiDocState.included)
+    } else if (documentMode === 'single' && singleDocState.selectedDocument) {
+      documentFilter = [singleDocState.selectedDocument]
+    } else if (documentMode === 'single' && !singleDocState.selectedDocument) {
+      setStatus('Please select a document first.')
+      return
+    }
+    
     try {
       setExhaustiveSearchRunning(true)
       setExhaustiveSearchResults({ relevant: [], nonRelevant: [], uncertain: [] })
       setShowExhaustiveResults(true)
       setStatus('Exhaustive search started...')
       
-      await window.api.exhaustiveSearch({ query: searchQuery })
+      await window.api.exhaustiveSearch({ 
+        query: searchQuery,
+        documentFilter,
+        mode: documentMode 
+      })
     } catch (error) {
       setExhaustiveSearchRunning(false)
       setStatus(`오류: ${error.message}`)
@@ -1939,7 +2077,7 @@ export default function App() {
   
   const cancelExhaustiveSearch = async () => {
     try {
-      await window.api.cancelExhaustiveSearch()
+      await window.api.cancelExhaustiveSearch({ mode: documentMode })
       setExhaustiveSearchRunning(false)
       setStatus('Exhaustive search cancelled')
     } catch (error) {
@@ -1947,17 +2085,33 @@ export default function App() {
     }
   }
   
+  // Helper functions to check if search is enabled
+  const canSearch = () => {
+    if (!processed || processing || !query.trim()) return false
+    
+    if (documentMode === 'multi') {
+      return multiDocState.included.size > 0
+    } else if (documentMode === 'single') {
+      return singleDocState.selectedDocument !== null
+    }
+    return false
+  }
+  
+  const canExhaustiveSearch = () => {
+    return canSearch() && settings.llmHost && settings.llmModel && !currentState.exhaustiveSearchRunning
+  }
+  
   const classifyExhaustiveResult = (resultId, newClassification) => {
     setExhaustiveSearchResults(prev => {
-      const allResults = [...prev.relevant, ...prev.nonRelevant, ...prev.uncertain]
+      const allResults = [...(prev.relevant || []), ...(prev.nonRelevant || []), ...(prev.uncertain || [])]
       const result = allResults.find(r => `${r.docId}::${r.chunkId}` === resultId)
       
       if (!result) return prev
       
       const newResults = {
-        relevant: prev.relevant.filter(r => `${r.docId}::${r.chunkId}` !== resultId),
-        nonRelevant: prev.nonRelevant.filter(r => `${r.docId}::${r.chunkId}` !== resultId),
-        uncertain: prev.uncertain.filter(r => `${r.docId}::${r.chunkId}` !== resultId)
+        relevant: (prev.relevant || []).filter(r => `${r.docId}::${r.chunkId}` !== resultId),
+        nonRelevant: (prev.nonRelevant || []).filter(r => `${r.docId}::${r.chunkId}` !== resultId),
+        uncertain: (prev.uncertain || []).filter(r => `${r.docId}::${r.chunkId}` !== resultId)
       }
       
       result.classification = newClassification
@@ -2075,49 +2229,62 @@ export default function App() {
         setStatus(`오류: ${error?.message || '전처리 실패'}`)
       }),
       window.api.onExhaustiveSearchStart((data) => {
-        setExhaustiveSearchProgress({ current: 0, total: data.total })
+        if (data.mode === documentMode) {
+          setExhaustiveSearchProgress({ current: 0, total: data.total })
+        }
       }),
       window.api.onExhaustiveSearchProgress((data) => {
-        setExhaustiveSearchProgress({ 
-          current: data.current, 
-          total: data.total,
-          docPath: data.docPath 
-        })
-        
-        // Classify and add result
-        const result = data.result
-        setExhaustiveSearchResults(prev => {
-          const newResults = { ...prev }
-          if (result.classification === 1) {
-            newResults.relevant = [...prev.relevant, result]
-          } else if (result.classification === 2) {
-            newResults.nonRelevant = [...prev.nonRelevant, result]
-          } else {
-            newResults.uncertain = [...prev.uncertain, result]
-          }
-          return newResults
-        })
+        console.log('Progress received:', { dataMode: data.mode, currentMode: documentMode, result: data.result })
+        if (data.mode === documentMode) {
+          setExhaustiveSearchProgress({ 
+            current: data.current, 
+            total: data.total,
+            docPath: data.docPath 
+          })
+          
+          // Classify and add result
+          const result = data.result
+          console.log('Adding result:', result)
+          setExhaustiveSearchResults(prev => {
+            const newResults = { ...prev }
+            if (result.classification === 1) {
+              newResults.relevant = [...(prev.relevant || []), result]
+            } else if (result.classification === 2) {
+              newResults.nonRelevant = [...(prev.nonRelevant || []), result]
+            } else {
+              newResults.uncertain = [...(prev.uncertain || []), result]
+            }
+            console.log('New results state:', newResults)
+            return newResults
+          })
+        }
       }),
-      window.api.onExhaustiveSearchComplete(() => {
-        setExhaustiveSearchRunning(false)
-        setExhaustiveSearchProgress(null)
-        setShowExhaustiveResults(true)
-        setStatus('Exhaustive search completed')
+      window.api.onExhaustiveSearchComplete((data) => {
+        if (data.mode === documentMode) {
+          setExhaustiveSearchRunning(false)
+          setExhaustiveSearchProgress(null)
+          setShowExhaustiveResults(true)
+          setStatus('Exhaustive search completed')
+        }
       }),
-      window.api.onExhaustiveSearchCancelled(() => {
-        setExhaustiveSearchRunning(false)
-        setExhaustiveSearchProgress(null)
-        setStatus('Exhaustive search cancelled')
+      window.api.onExhaustiveSearchCancelled((data) => {
+        if (data.mode === documentMode) {
+          setExhaustiveSearchRunning(false)
+          setExhaustiveSearchProgress(null)
+          setStatus('Exhaustive search cancelled')
+        }
       }),
-      window.api.onExhaustiveSearchError((error) => {
-        setExhaustiveSearchRunning(false)
-        setExhaustiveSearchProgress(null)
-        setStatus(`Error: ${error?.message || 'Exhaustive search failed'}`)
+      window.api.onExhaustiveSearchError((data) => {
+        if (data.mode === documentMode) {
+          setExhaustiveSearchRunning(false)
+          setExhaustiveSearchProgress(null)
+          setStatus(`Error: ${data?.message || 'Exhaustive search failed'}`)
+        }
       })
     ]
     
     return () => cleanup.forEach(fn => fn())
-  }, [settings.embeddingHost, settings.embeddingModel])
+  }, [settings.embeddingHost, settings.embeddingModel, documentMode])
 
   // Render
   if (!workspace) {
@@ -2151,6 +2318,19 @@ export default function App() {
           onUpdateNotes={setNotes}
           onShowNotesCollection={() => setShowNotesCollection(true)}
           onClearAllNotes={() => setShowClearNotesConfirm(true)}
+          documentMode={documentMode}
+          onDocumentModeChange={(newMode) => {
+            // Simply switch modes - each mode maintains its own independent state
+            setDocumentMode(newMode)
+          }}
+          selectedDocument={selectedDocument}
+          onDocumentSelect={(docPath) => {
+            setSelectedDocument(docPath)
+            // Open the document when selected in single mode
+            if (documentMode === 'single') {
+              setActiveDoc(docPath)
+            }
+          }}
         />
       </div>
 
@@ -2163,13 +2343,13 @@ export default function App() {
                 placeholder="질문을 입력하세요 (예: BERT의 사전학습 목표는?)"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && query.trim() && runSearch()}
+                onKeyDown={(e) => e.key === 'Enter' && canSearch() && runSearch()}
                 disabled={!processed || processing}
               />
               <button 
                 className="search-button" 
                 onClick={runSearch}
-                disabled={!processed || processing || !query.trim()}
+                disabled={!canSearch()}
               >
                 Search
               </button>
@@ -2178,7 +2358,7 @@ export default function App() {
                 <button 
                   className="search-button" 
                   onClick={() => handleExhaustiveSearch(query)}
-                  disabled={!query.trim()}
+                  disabled={!canExhaustiveSearch()}
                   style={{ marginLeft: '8px' }}
                 >
                   Exhaustive Search
@@ -2239,7 +2419,7 @@ export default function App() {
             </div>
 
             {/* Results Tabs */}
-            {(results.length > 0 || Object.values(exhaustiveSearchResults).some(arr => arr.length > 0)) && (
+            {(results.length > 0 || Object.values(exhaustiveSearchResults).some(arr => arr && arr.length > 0) || showExhaustiveResults) && (
               <div className="results-tabs" style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '8px' }}>
                 <button 
                   className={`tab-button ${!showExhaustiveResults ? 'active' : ''}`}
@@ -2267,7 +2447,7 @@ export default function App() {
                     fontSize: '12px'
                   }}
                 >
-                  Exhaustive Search ({exhaustiveSearchResults.relevant.length + exhaustiveSearchResults.nonRelevant.length + exhaustiveSearchResults.uncertain.length})
+                  Exhaustive Search ({(currentState.exhaustiveSearchResults.relevant?.length || 0) + (currentState.exhaustiveSearchResults.nonRelevant?.length || 0) + (currentState.exhaustiveSearchResults.uncertain?.length || 0)})
                 </button>
               </div>
             )}
@@ -2289,7 +2469,7 @@ export default function App() {
                     <div className="result-header text-truncate" title={result.path}>
                       {result.path.split(/[\\\\/]/).pop()}
                     </div>
-                    {result.hits.map((hit) => (
+                    {result.hits && Array.isArray(result.hits) && result.hits.map((hit) => (
                       <div key={hit.id} className="result-hit">
                         <div className="result-meta">
                           페이지 {hit.page} • 점수: {hit.score.toFixed(3)}
@@ -2317,7 +2497,30 @@ export default function App() {
             
             {/* Exhaustive Search Results */}
             <div className="results-container" style={{ display: showExhaustiveResults ? 'block' : 'none' }}>
-              {Object.values(exhaustiveSearchResults).every(arr => arr.length === 0) ? (
+              {(() => {
+                console.log('UI Check Debug:', {
+                  documentMode,
+                  multiDocStateType: typeof multiDocState,
+                  multiDocState: multiDocState,
+                  singleDocStateType: typeof singleDocState,
+                  singleDocState: singleDocState,
+                  currentStateType: typeof currentState,
+                  currentState: currentState,
+                  exhaustiveSearchResults,
+                  typeOfExhaustiveSearchResults: typeof exhaustiveSearchResults
+                })
+                
+                const actualResults = currentState.exhaustiveSearchResults
+                const hasNoResults = Object.values(actualResults).every(arr => !arr || arr.length === 0)
+                console.log('UI Check Final:', { 
+                  actualResults, 
+                  values: Object.values(actualResults),
+                  hasNoResults,
+                  showExhaustiveResults,
+                  exhaustiveSearchRunning
+                })
+                return hasNoResults
+              })() ? (
                 <div style={{ 
                   textAlign: 'center', 
                   color: 'var(--text-muted)', 
@@ -2348,7 +2551,7 @@ export default function App() {
                         fontWeight: exhaustiveActiveTab === 'relevant' ? 'bold' : 'normal'
                       }}
                     >
-                      Relevant ({exhaustiveSearchResults.relevant.length})
+                      Relevant ({currentState.exhaustiveSearchResults.relevant?.length || 0})
                     </button>
                     <button 
                       onClick={() => setExhaustiveActiveTab('nonRelevant')}
@@ -2363,7 +2566,7 @@ export default function App() {
                         fontWeight: exhaustiveActiveTab === 'nonRelevant' ? 'bold' : 'normal'
                       }}
                     >
-                      Non-relevant ({exhaustiveSearchResults.nonRelevant.length})
+                      Non-relevant ({currentState.exhaustiveSearchResults.nonRelevant?.length || 0})
                     </button>
                     <button 
                       onClick={() => setExhaustiveActiveTab('uncertain')}
@@ -2378,14 +2581,15 @@ export default function App() {
                         fontWeight: exhaustiveActiveTab === 'uncertain' ? 'bold' : 'normal'
                       }}
                     >
-                      Uncertain ({exhaustiveSearchResults.uncertain.length})
+                      Uncertain ({currentState.exhaustiveSearchResults.uncertain?.length || 0})
                     </button>
                   </div>
                   
                   {/* Tab Content */}
                   <div className="exhaustive-tab-content">
                     {(() => {
-                      const currentResults = exhaustiveSearchResults[exhaustiveActiveTab] || []
+                      const actualResults = currentState.exhaustiveSearchResults
+                      const currentResults = actualResults[exhaustiveActiveTab] || []
                       
                       if (currentResults.length === 0) {
                         return (

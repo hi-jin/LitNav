@@ -247,7 +247,13 @@ Classify if this section DIRECTLY addresses the query (not just mentions it).`
   }
 }
 
-let currentExhaustiveSearch = null
+// Mode-specific search tracking
+const searchStates = {
+  exhaustiveSearch: {
+    multi: null,
+    single: null
+  }
+}
 
 // IPC handlers
 ipcMain.handle('select-workspace', async () => {
@@ -391,7 +397,7 @@ ipcMain.handle('preprocess-cancel', () => {
   return false
 })
 
-ipcMain.handle('search', async (_, { query, perDocN = 3 }) => {
+ipcMain.handle('search', async (_, { query, perDocN = 3, documentFilter = null }) => {
   if (workspace.docs.size === 0) throw new Error('전처리가 완료되지 않았습니다.')
   const { embeddingHost, embeddingModel, apiKey } = workspace.settings
   
@@ -399,10 +405,12 @@ ipcMain.handle('search', async (_, { query, perDocN = 3 }) => {
   const [qEmb] = await embedBatch([query], embeddingHost, embeddingModel, apiKey)
   const qNorm = norm(qEmb)
 
-  // Dense vector similarity search across all chunks
+  // Dense vector similarity search across all or filtered chunks
   const resultsByDoc = new Map() // docId -> [{id, score, page, text}]
   
   for (const doc of workspace.docs.values()) {
+    // Skip documents not in filter if specified
+    if (documentFilter && !documentFilter.includes(doc.id)) continue
     const docResults = []
     
     for (const c of doc.chunks) {
@@ -440,7 +448,7 @@ ipcMain.handle('search', async (_, { query, perDocN = 3 }) => {
   return results
 })
 
-ipcMain.handle('exhaustive-search', async (event, { query }) => {
+ipcMain.handle('exhaustive-search', async (event, { query, documentFilter = null, mode = 'multi' }) => {
   if (workspace.docs.size === 0) throw new Error('전처리가 완료되지 않았습니다.')
   const { llmHost, llmModel, llmApiKey } = workspace.settings
   
@@ -448,12 +456,12 @@ ipcMain.handle('exhaustive-search', async (event, { query }) => {
     throw new Error('LLM 설정(Host/Model)을 입력해주세요.')
   }
   
-  if (currentExhaustiveSearch?.running) {
-    throw new Error('이미 검색 중입니다.')
+  if (searchStates.exhaustiveSearch[mode]?.running) {
+    throw new Error(`이미 ${mode} 모드에서 검색 중입니다.`)
   }
 
   const controller = new AbortController()
-  currentExhaustiveSearch = { cancelled: false, controller, running: true }
+  searchStates.exhaustiveSearch[mode] = { cancelled: false, controller, running: true }
   const sender = event.sender
   
   const send = (name, payload) => {
@@ -461,28 +469,30 @@ ipcMain.handle('exhaustive-search', async (event, { query }) => {
   }
   
   try {
-    // Calculate total chunks
+    // Calculate total chunks for filtered documents
     let totalChunks = 0
     const docList = []
     for (const doc of workspace.docs.values()) {
+      // Skip documents not in filter if specified
+      if (documentFilter && !documentFilter.includes(doc.id)) continue
       totalChunks += doc.chunks.length
       docList.push(doc)
     }
     
-    send('exhaustive-search-start', { total: totalChunks })
+    send('exhaustive-search-start', { total: totalChunks, mode })
     
     let processed = 0
     const results = []
     
     // Process each document
     for (const doc of docList) {
-      if (currentExhaustiveSearch.cancelled || controller.signal.aborted) {
+      if (searchStates.exhaustiveSearch[mode].cancelled || controller.signal.aborted) {
         throw new Error('CANCELLED')
       }
       
       // Process each chunk
       for (const chunk of doc.chunks) {
-        if (currentExhaustiveSearch.cancelled || controller.signal.aborted) {
+        if (searchStates.exhaustiveSearch[mode].cancelled || controller.signal.aborted) {
           throw new Error('CANCELLED')
         }
         
@@ -513,31 +523,35 @@ ipcMain.handle('exhaustive-search', async (event, { query }) => {
           current: processed,
           total: totalChunks,
           docPath: doc.path,
-          result
+          result,
+          mode
         })
       }
     }
     
-    send('exhaustive-search-complete', { results, total: results.length })
+    send('exhaustive-search-complete', { results, total: results.length, mode })
     return results
     
   } catch (e) {
     if (e && typeof e.message === 'string' && e.message === 'CANCELLED') {
-      send('exhaustive-search-cancelled', {})
+      send('exhaustive-search-cancelled', { mode })
       throw new Error('검색이 취소되었습니다.')
     }
-    send('exhaustive-search-error', { message: e?.message || String(e) })
+    send('exhaustive-search-error', { message: e?.message || String(e), mode })
     throw e
   } finally {
-    if (currentExhaustiveSearch) currentExhaustiveSearch.running = false
-    currentExhaustiveSearch = null
+    if (searchStates.exhaustiveSearch[mode]) {
+      searchStates.exhaustiveSearch[mode].running = false
+      searchStates.exhaustiveSearch[mode] = null
+    }
   }
 })
 
-ipcMain.handle('exhaustive-search-cancel', () => {
-  if (currentExhaustiveSearch) {
-    currentExhaustiveSearch.cancelled = true
-    currentExhaustiveSearch.controller.abort()
+ipcMain.handle('exhaustive-search-cancel', (_, args) => {
+  const { mode = 'multi' } = args || {}
+  if (searchStates.exhaustiveSearch[mode]) {
+    searchStates.exhaustiveSearch[mode].cancelled = true
+    searchStates.exhaustiveSearch[mode].controller.abort()
   }
   return true
 })

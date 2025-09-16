@@ -370,6 +370,11 @@ body {
   background: var(--vscode-list-hover);
 }
 
+.file-item.selected {
+  background: var(--vscode-list-active);
+  color: var(--text-primary);
+}
+
 .file-item input[type="checkbox"] {
   margin-right: 8px;
   width: 14px;
