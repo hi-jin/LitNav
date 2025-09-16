@@ -542,10 +542,6 @@ function SidebarContent({
   view,
   workspace,
   files,
-  included,
-  onToggleFile,
-  onSelectAll,
-  onClearAll,
   activeDoc,
   notes,
   onUpdateNotes,
@@ -610,14 +606,9 @@ function SidebarContent({
           <div className="file-tree-header">
             <span>PDF FILES ({files.length})</span>
             {documentMode === 'multi' && (
-              <div className="flex gap-2">
-                <button className="btn btn-secondary" style={{ fontSize: '10px', padding: '2px 6px' }} onClick={onSelectAll}>
-                  All
-                </button>
-                <button className="btn btn-secondary" style={{ fontSize: '10px', padding: '2px 6px' }} onClick={onClearAll}>
-                  None
-                </button>
-              </div>
+              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                All documents included
+              </span>
             )}
           </div>
           {files.map((file) => (
@@ -625,21 +616,12 @@ function SidebarContent({
               key={file} 
               className={`file-item ${documentMode === 'single' && selectedDocument === file ? 'selected' : ''}`}
             >
-              {documentMode === 'multi' && (
-                <input
-                  type="checkbox"
-                  checked={included.has(file)}
-                  onChange={() => onToggleFile(file)}
-                />
-              )}
               <div 
                 className="file-name" 
                 title={file}
-                style={{ cursor: 'pointer' }}
+                style={{ cursor: documentMode === 'single' ? 'pointer' : 'default' }}
                 onClick={() => {
-                  if (documentMode === 'multi') {
-                    onToggleFile(file)
-                  } else {
+                  if (documentMode === 'single') {
                     onDocumentSelect(file)
                   }
                 }}
@@ -1833,9 +1815,8 @@ export default function App() {
   const [processed, setProcessed] = useState(false)
   const [progressData, setProgressData] = useState(null)
   
-  // Multi-Doc State
+  // Multi-Doc State - automatically includes all documents
   const [multiDocState, setMultiDocState] = useState({
-    included: new Set(),
     query: '',
     results: [],
     status: null,
@@ -1879,7 +1860,6 @@ export default function App() {
   const setCurrentState = documentMode === 'multi' ? setMultiDocState : setSingleDocState
   
   // Convenience getters for current mode
-  const included = multiDocState.included
   const selectedDocument = singleDocState.selectedDocument
   const query = currentState.query
   const results = currentState.results
@@ -1961,9 +1941,6 @@ export default function App() {
     }
   }, [documentMode])
   
-  // Multi-doc specific setters
-  const setIncluded = (value) => setMultiDocState(prev => ({ ...prev, included: value }))
-  
   // Single-doc specific setters  
   const setSelectedDocument = (value) => setSingleDocState(prev => ({ ...prev, selectedDocument: value }))
 
@@ -2012,30 +1989,6 @@ export default function App() {
     }
   }
 
-  const toggleFileIncluded = async (file) => {
-    const newIncluded = new Set(included)
-    if (newIncluded.has(file)) {
-      newIncluded.delete(file)
-    } else {
-      newIncluded.add(file)
-    }
-    setIncluded(newIncluded)
-    await window.api.setIncludeFiles(Array.from(newIncluded))
-    setProcessed(false)
-  }
-
-  const selectAllFiles = async () => {
-    const newIncluded = new Set(files)
-    setIncluded(newIncluded)
-    await window.api.setIncludeFiles(files)
-    setProcessed(false)
-  }
-
-  const clearAllFiles = async () => {
-    setIncluded(new Set())
-    await window.api.setIncludeFiles([])
-    setProcessed(false)
-  }
 
   const preprocess = async () => {
     try {
@@ -2066,7 +2019,8 @@ export default function App() {
       // Determine document filter based on mode
       let documentFilter = null
       if (documentMode === 'multi') {
-        documentFilter = Array.from(multiDocState.included)
+        // Use all documents in multi-doc mode
+        documentFilter = files
       } else if (documentMode === 'single' && singleDocState.selectedDocument) {
         documentFilter = [singleDocState.selectedDocument]
       } else if (documentMode === 'single' && !singleDocState.selectedDocument) {
@@ -2111,7 +2065,8 @@ export default function App() {
     // Determine document filter based on mode
     let documentFilter = null
     if (documentMode === 'multi') {
-      documentFilter = Array.from(multiDocState.included)
+      // Use all documents in multi-doc mode
+      documentFilter = files
     } else if (documentMode === 'single' && singleDocState.selectedDocument) {
       documentFilter = [singleDocState.selectedDocument]
     } else if (documentMode === 'single' && !singleDocState.selectedDocument) {
@@ -2152,7 +2107,8 @@ export default function App() {
     if (!processed || processing || !query.trim()) return false
     
     if (documentMode === 'multi') {
-      return multiDocState.included.size > 0
+      // Multi-doc mode always uses all files, so just check if we have files
+      return files.length > 0
     } else if (documentMode === 'single') {
       return singleDocState.selectedDocument !== null
     }
@@ -2381,10 +2337,6 @@ export default function App() {
           view={activeView}
           workspace={workspace}
           files={files}
-          included={included}
-          onToggleFile={toggleFileIncluded}
-          onSelectAll={selectAllFiles}
-          onClearAll={clearAllFiles}
           activeDoc={activeDoc}
           notes={notes}
           onUpdateNotes={setNotes}
