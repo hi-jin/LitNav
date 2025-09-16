@@ -605,11 +605,6 @@ function SidebarContent({
         <div className="file-tree">
           <div className="file-tree-header">
             <span>PDF FILES ({files.length})</span>
-            {documentMode === 'multi' && (
-              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                All documents included
-              </span>
-            )}
           </div>
           {files.map((file) => (
             <div 
