@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('api', {
+  getPlatform: () => ipcRenderer.invoke('get-platform'),
   selectWorkspace: () => ipcRenderer.invoke('select-workspace'),
   setSettings: (settings) => ipcRenderer.invoke('set-settings', settings),
   setIncludeFiles: (files) => ipcRenderer.invoke('set-include-files', files),

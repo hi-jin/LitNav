@@ -256,6 +256,10 @@ const searchStates = {
 }
 
 // IPC handlers
+ipcMain.handle('get-platform', () => {
+  return process.platform
+})
+
 ipcMain.handle('select-workspace', async () => {
   const res = await dialog.showOpenDialog({ properties: ['openDirectory'] })
   if (res.canceled || res.filePaths.length === 0) return null

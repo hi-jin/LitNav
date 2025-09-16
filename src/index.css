@@ -62,14 +62,20 @@ body {
 
 /* Title Bar */
 .title-bar {
-  height: 30px;
+  height: 34px;
   background: var(--vscode-editor-bg);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
-  padding-left: 16px;
+  justify-content: center;
   -webkit-app-region: drag;
   flex-shrink: 0;
+}
+
+/* Windows-specific title bar styling */
+.platform-win32 .title-bar {
+  justify-content: flex-start;
+  padding-left: 16px;
 }
 
 .title-bar-content {

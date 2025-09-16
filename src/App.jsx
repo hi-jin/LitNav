@@ -1790,6 +1790,21 @@ function PDFViewer({ filePath, page, snippet, query }) {
 
 // Main App Component
 export default function App() {
+  // Add platform-specific class to body
+  useEffect(() => {
+    async function setPlatformClass() {
+      if (window.api?.getPlatform) {
+        try {
+          const platform = await window.api.getPlatform()
+          document.body.className = `platform-${platform}`
+        } catch (error) {
+          console.warn('Failed to get platform:', error)
+        }
+      }
+    }
+    setPlatformClass()
+  }, [])
+
   // State Management
   const [workspace, setWorkspace] = useState(null)
   const [files, setFiles] = useState([])
