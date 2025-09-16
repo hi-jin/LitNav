@@ -184,6 +184,71 @@ function norm(a) {
   return Math.sqrt(dot(a, a))
 }
 
+// LLM Classification Service
+async function classifyChunkWithLLM(chunk, query, host, model, apiKey, signal) {
+  const systemPrompt = `You are a strict document classifier. Given a text section and a search query, classify whether the section DIRECTLY addresses the query.
+
+Classification criteria:
+- Classification 1 (Relevant): The section DIRECTLY discusses, explains, or answers the query. The query topic must be the main focus of the section.
+- Classification 2 (Not Relevant): The section does not discuss the query topic, or only mentions it in passing without substantive information.
+- Classification 3 (Uncertain): The section indirectly relates to the query or contains partial information that might be useful but doesn't directly answer it.
+
+Be STRICT: Only classify as relevant (1) if the section explicitly and directly addresses the query. Mere mentions or indirect references should be classified as uncertain (3) or not relevant (2).
+
+Respond with JSON only: {"classification": 1} for directly relevant, {"classification": 2} for not relevant, {"classification": 3} for uncertain.`
+  
+  const userPrompt = `Query: ${query}
+
+Section text:
+${chunk}
+
+Classify if this section DIRECTLY addresses the query (not just mentions it).`
+
+  try {
+    const url = new URL('/v1/chat/completions', host).toString().replace('/v1/v1/', '/v1/')
+    const res = await axios.post(
+      url,
+      {
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0,
+        response_format: { type: 'json_object' }
+      },
+      {
+        timeout: 30000,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        },
+        signal,
+      }
+    )
+    
+    if (!res.data?.choices?.[0]?.message?.content) {
+      throw new Error('Invalid LLM response')
+    }
+    
+    const content = res.data.choices[0].message.content
+    const parsed = JSON.parse(content)
+    
+    if (parsed.classification && [1, 2, 3].includes(parsed.classification)) {
+      return { classification: parsed.classification }
+    }
+    
+    return { classification: 3, reason: 'Invalid classification response' }
+  } catch (error) {
+    if (error.name === 'AbortError' || (error.code && error.code === 'ECONNABORTED')) {
+      throw new Error('CANCELLED')
+    }
+    return { classification: 3, reason: error.message || 'Classification failed' }
+  }
+}
+
+let currentExhaustiveSearch = null
+
 // IPC handlers
 ipcMain.handle('select-workspace', async () => {
   const res = await dialog.showOpenDialog({ properties: ['openDirectory'] })
@@ -373,6 +438,108 @@ ipcMain.handle('search', async (_, { query, perDocN = 3 }) => {
   results.sort((a, b) => (b.hits[0]?.score || 0) - (a.hits[0]?.score || 0))
   
   return results
+})
+
+ipcMain.handle('exhaustive-search', async (event, { query }) => {
+  if (workspace.docs.size === 0) throw new Error('전처리가 완료되지 않았습니다.')
+  const { llmHost, llmModel, llmApiKey } = workspace.settings
+  
+  if (!llmHost || !llmModel) {
+    throw new Error('LLM 설정(Host/Model)을 입력해주세요.')
+  }
+  
+  if (currentExhaustiveSearch?.running) {
+    throw new Error('이미 검색 중입니다.')
+  }
+
+  const controller = new AbortController()
+  currentExhaustiveSearch = { cancelled: false, controller, running: true }
+  const sender = event.sender
+  
+  const send = (name, payload) => {
+    try { sender.send(name, payload) } catch {}
+  }
+  
+  try {
+    // Calculate total chunks
+    let totalChunks = 0
+    const docList = []
+    for (const doc of workspace.docs.values()) {
+      totalChunks += doc.chunks.length
+      docList.push(doc)
+    }
+    
+    send('exhaustive-search-start', { total: totalChunks })
+    
+    let processed = 0
+    const results = []
+    
+    // Process each document
+    for (const doc of docList) {
+      if (currentExhaustiveSearch.cancelled || controller.signal.aborted) {
+        throw new Error('CANCELLED')
+      }
+      
+      // Process each chunk
+      for (const chunk of doc.chunks) {
+        if (currentExhaustiveSearch.cancelled || controller.signal.aborted) {
+          throw new Error('CANCELLED')
+        }
+        
+        const classification = await classifyChunkWithLLM(
+          chunk.text,
+          query,
+          llmHost,
+          llmModel,
+          llmApiKey,
+          controller.signal
+        )
+        
+        const result = {
+          docId: doc.id,
+          path: doc.path,
+          chunkId: chunk.id,
+          page: chunk.page,
+          text: chunk.text,
+          classification: classification.classification,
+          reason: classification.reason,
+          timestamp: Date.now()
+        }
+        
+        results.push(result)
+        processed++
+        
+        send('exhaustive-search-progress', {
+          current: processed,
+          total: totalChunks,
+          docPath: doc.path,
+          result
+        })
+      }
+    }
+    
+    send('exhaustive-search-complete', { results, total: results.length })
+    return results
+    
+  } catch (e) {
+    if (e && typeof e.message === 'string' && e.message === 'CANCELLED') {
+      send('exhaustive-search-cancelled', {})
+      throw new Error('검색이 취소되었습니다.')
+    }
+    send('exhaustive-search-error', { message: e?.message || String(e) })
+    throw e
+  } finally {
+    if (currentExhaustiveSearch) currentExhaustiveSearch.running = false
+    currentExhaustiveSearch = null
+  }
+})
+
+ipcMain.handle('exhaustive-search-cancel', () => {
+  if (currentExhaustiveSearch) {
+    currentExhaustiveSearch.cancelled = true
+    currentExhaustiveSearch.controller.abort()
+  }
+  return true
 })
 
 ipcMain.handle('resolve-file-url', (_, filePath) => {

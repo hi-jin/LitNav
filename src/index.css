@@ -22,10 +22,20 @@
   --primary-dark: #005a9e;
   --surface: var(--vscode-sidebar-bg);
   --bg-primary: var(--vscode-editor-bg);
+  --background-secondary: #2a2a2a;
   --text-primary: var(--vscode-editor-fg);
   --text-secondary: #9d9d9d;
   --text-muted: #6a6a6a;
   --border: var(--vscode-border);
+  --accent-color: var(--primary);
+  
+  /* Status colors */
+  --success-bg: #0d2818;
+  --success-color: #4ade80;
+  --error-bg: #2a1215;
+  --error-color: #f87171;
+  --warning-bg: #2a2111;
+  --warning-color: #facc15;
   
   /* Splitter position */
   --splitter-position: 30%;
@@ -734,6 +744,12 @@ body {
   padding: 20px;
   max-height: 60vh;
   overflow: auto;
+}
+
+.modal-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 20px 0;
 }
 
 .modal-footer {

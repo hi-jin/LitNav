@@ -422,6 +422,34 @@ function SettingsModal({ isOpen, settings, onSave, onClose }) {
               onChange={(e) => setLocalSettings({ ...localSettings, apiKey: e.target.value })}
             />
           </div>
+          <hr className="modal-divider" />
+          <div className="form-group">
+            <label className="form-label">LLM API Host (For Exhaustive Search)</label>
+            <input
+              className="form-input"
+              placeholder="http://localhost:11434"
+              value={localSettings.llmHost}
+              onChange={(e) => setLocalSettings({ ...localSettings, llmHost: e.target.value })}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">LLM Model</label>
+            <input
+              className="form-input"
+              placeholder="llama3.2"
+              value={localSettings.llmModel}
+              onChange={(e) => setLocalSettings({ ...localSettings, llmModel: e.target.value })}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">LLM API Key (optional)</label>
+            <input
+              className="form-input"
+              placeholder="sk-..."
+              value={localSettings.llmApiKey}
+              onChange={(e) => setLocalSettings({ ...localSettings, llmApiKey: e.target.value })}
+            />
+          </div>
           <div className="form-row">
             <div className="form-group">
               <label className="form-label">Chunk Size</label>
@@ -1732,6 +1760,9 @@ export default function App() {
     chunkSize: 1200,
     chunkOverlap: 200,
     perDocN: 3,
+    llmHost: '',
+    llmModel: '',
+    llmApiKey: '',
   })
   const [lastEmbedConfig, setLastEmbedConfig] = useState(null)
 
@@ -1752,6 +1783,17 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showNotesCollection, setShowNotesCollection] = useState(false)
   const [showClearNotesConfirm, setShowClearNotesConfirm] = useState(false)
+  
+  // Exhaustive Search State
+  const [exhaustiveSearchRunning, setExhaustiveSearchRunning] = useState(false)
+  const [exhaustiveSearchProgress, setExhaustiveSearchProgress] = useState(null)
+  const [exhaustiveSearchResults, setExhaustiveSearchResults] = useState({
+    relevant: [],
+    nonRelevant: [],
+    uncertain: []
+  })
+  const [showExhaustiveResults, setShowExhaustiveResults] = useState(false)
+  const [exhaustiveActiveTab, setExhaustiveActiveTab] = useState('relevant')
   
   // UI State
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -1791,6 +1833,9 @@ export default function App() {
       apiKey: newSettings.apiKey,
       chunkSize: newSettings.chunkSize,
       chunkOverlap: newSettings.chunkOverlap,
+      llmHost: newSettings.llmHost,
+      llmModel: newSettings.llmModel,
+      llmApiKey: newSettings.llmApiKey,
     })
     
     if (hostChanged) {
@@ -1858,6 +1903,75 @@ export default function App() {
     }
   }
 
+  const handleExhaustiveSearch = async (searchQuery = query) => {
+    if (!processed || processing) {
+      setStatus('먼저 전처리를 완료하세요.')
+      return
+    }
+    
+    if (!settings.llmHost || !settings.llmModel) {
+      setStatus('LLM 설정을 먼저 입력해주세요.')
+      return
+    }
+    
+    if (exhaustiveSearchRunning) {
+      setStatus('이미 Exhaustive Search가 진행 중입니다.')
+      return
+    }
+    
+    if (!searchQuery) {
+      setStatus('검색어를 입력해주세요.')
+      return
+    }
+    
+    try {
+      setExhaustiveSearchRunning(true)
+      setExhaustiveSearchResults({ relevant: [], nonRelevant: [], uncertain: [] })
+      setShowExhaustiveResults(true)
+      setStatus('Exhaustive search started...')
+      
+      await window.api.exhaustiveSearch({ query: searchQuery })
+    } catch (error) {
+      setExhaustiveSearchRunning(false)
+      setStatus(`오류: ${error.message}`)
+    }
+  }
+  
+  const cancelExhaustiveSearch = async () => {
+    try {
+      await window.api.cancelExhaustiveSearch()
+      setExhaustiveSearchRunning(false)
+      setStatus('Exhaustive search cancelled')
+    } catch (error) {
+      console.error('Failed to cancel exhaustive search:', error)
+    }
+  }
+  
+  const classifyExhaustiveResult = (resultId, newClassification) => {
+    setExhaustiveSearchResults(prev => {
+      const allResults = [...prev.relevant, ...prev.nonRelevant, ...prev.uncertain]
+      const result = allResults.find(r => `${r.docId}::${r.chunkId}` === resultId)
+      
+      if (!result) return prev
+      
+      const newResults = {
+        relevant: prev.relevant.filter(r => `${r.docId}::${r.chunkId}` !== resultId),
+        nonRelevant: prev.nonRelevant.filter(r => `${r.docId}::${r.chunkId}` !== resultId),
+        uncertain: prev.uncertain.filter(r => `${r.docId}::${r.chunkId}` !== resultId)
+      }
+      
+      result.classification = newClassification
+      
+      if (newClassification === 1) {
+        newResults.relevant.push(result)
+      } else if (newClassification === 2) {
+        newResults.nonRelevant.push(result)
+      }
+      
+      return newResults
+    })
+  }
+  
   const openContext = (docPath, page, snippet) => {
     setActiveDoc(docPath)
     setActivePage(page)
@@ -1906,6 +2020,9 @@ export default function App() {
               apiKey: newSettings.apiKey,
               chunkSize: newSettings.chunkSize,
               chunkOverlap: newSettings.chunkOverlap,
+              llmHost: newSettings.llmHost,
+              llmModel: newSettings.llmModel,
+              llmApiKey: newSettings.llmApiKey,
             })
             setLastEmbedConfig({ 
               embeddingHost: newSettings.embeddingHost, 
@@ -1956,6 +2073,46 @@ export default function App() {
         setProcessed(false)
         setProgressData(null)
         setStatus(`오류: ${error?.message || '전처리 실패'}`)
+      }),
+      window.api.onExhaustiveSearchStart((data) => {
+        setExhaustiveSearchProgress({ current: 0, total: data.total })
+      }),
+      window.api.onExhaustiveSearchProgress((data) => {
+        setExhaustiveSearchProgress({ 
+          current: data.current, 
+          total: data.total,
+          docPath: data.docPath 
+        })
+        
+        // Classify and add result
+        const result = data.result
+        setExhaustiveSearchResults(prev => {
+          const newResults = { ...prev }
+          if (result.classification === 1) {
+            newResults.relevant = [...prev.relevant, result]
+          } else if (result.classification === 2) {
+            newResults.nonRelevant = [...prev.nonRelevant, result]
+          } else {
+            newResults.uncertain = [...prev.uncertain, result]
+          }
+          return newResults
+        })
+      }),
+      window.api.onExhaustiveSearchComplete(() => {
+        setExhaustiveSearchRunning(false)
+        setExhaustiveSearchProgress(null)
+        setShowExhaustiveResults(true)
+        setStatus('Exhaustive search completed')
+      }),
+      window.api.onExhaustiveSearchCancelled(() => {
+        setExhaustiveSearchRunning(false)
+        setExhaustiveSearchProgress(null)
+        setStatus('Exhaustive search cancelled')
+      }),
+      window.api.onExhaustiveSearchError((error) => {
+        setExhaustiveSearchRunning(false)
+        setExhaustiveSearchProgress(null)
+        setStatus(`Error: ${error?.message || 'Exhaustive search failed'}`)
       })
     ]
     
@@ -2006,30 +2163,60 @@ export default function App() {
                 placeholder="질문을 입력하세요 (예: BERT의 사전학습 목표는?)"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+                onKeyDown={(e) => e.key === 'Enter' && query.trim() && runSearch()}
                 disabled={!processed || processing}
               />
               <button 
                 className="search-button" 
                 onClick={runSearch}
-                disabled={!processed || processing}
+                disabled={!processed || processing || !query.trim()}
               >
-                검색
+                Search
               </button>
+              
+              {processed && !exhaustiveSearchRunning && settings.llmHost && settings.llmModel && (
+                <button 
+                  className="search-button" 
+                  onClick={() => handleExhaustiveSearch(query)}
+                  disabled={!query.trim()}
+                  style={{ marginLeft: '8px' }}
+                >
+                  Exhaustive Search
+                </button>
+              )}
+              
+              {exhaustiveSearchRunning && (
+                <button 
+                  className="search-button" 
+                  onClick={cancelExhaustiveSearch}
+                  style={{ marginLeft: '8px' }}
+                >
+                  Cancel Search
+                </button>
+              )}
               
               {!processed && !processing && (
                 <button className="search-button" onClick={preprocess} style={{ marginLeft: '8px' }}>
-                  임베딩 생성
+                  Generate Embeddings
                 </button>
               )}
               {processing && (
                 <button className="search-button" onClick={() => window.api.cancelPreprocess()} style={{ marginLeft: '8px' }}>
-                  취소
+                  Cancel
                 </button>
               )}
 
               {status && (
                 <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>{status}</div>
+              )}
+              
+              {exhaustiveSearchProgress && (
+                <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                  Exhaustive Search: {exhaustiveSearchProgress.current}/{exhaustiveSearchProgress.total} sections
+                  {exhaustiveSearchProgress.docPath && (
+                    <span> - {exhaustiveSearchProgress.docPath.split(/[\\/]/).pop()}</span>
+                  )}
+                </div>
               )}
 
               {processing && progressData && (
@@ -2051,7 +2238,42 @@ export default function App() {
               )}
             </div>
 
-            <div className="results-container">
+            {/* Results Tabs */}
+            {(results.length > 0 || Object.values(exhaustiveSearchResults).some(arr => arr.length > 0)) && (
+              <div className="results-tabs" style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '8px' }}>
+                <button 
+                  className={`tab-button ${!showExhaustiveResults ? 'active' : ''}`}
+                  onClick={() => setShowExhaustiveResults(false)}
+                  style={{
+                    padding: '8px 16px',
+                    background: !showExhaustiveResults ? 'var(--background-secondary)' : 'transparent',
+                    border: 'none',
+                    borderBottom: !showExhaustiveResults ? '2px solid var(--accent-color)' : 'none',
+                    cursor: 'pointer',
+                    fontSize: '12px'
+                  }}
+                >
+                  Embedding Search
+                </button>
+                <button 
+                  className={`tab-button ${showExhaustiveResults ? 'active' : ''}`}
+                  onClick={() => setShowExhaustiveResults(true)}
+                  style={{
+                    padding: '8px 16px',
+                    background: showExhaustiveResults ? 'var(--background-secondary)' : 'transparent',
+                    border: 'none',
+                    borderBottom: showExhaustiveResults ? '2px solid var(--accent-color)' : 'none',
+                    cursor: 'pointer',
+                    fontSize: '12px'
+                  }}
+                >
+                  Exhaustive Search ({exhaustiveSearchResults.relevant.length + exhaustiveSearchResults.nonRelevant.length + exhaustiveSearchResults.uncertain.length})
+                </button>
+              </div>
+            )}
+            
+            {/* Embedding Search Results */}
+            <div className="results-container" style={{ display: !showExhaustiveResults ? 'block' : 'none' }}>
               {results.length === 0 ? (
                 <div style={{ 
                   textAlign: 'center', 
@@ -2090,6 +2312,157 @@ export default function App() {
                     ))}
                   </div>
                 ))
+              )}
+            </div>
+            
+            {/* Exhaustive Search Results */}
+            <div className="results-container" style={{ display: showExhaustiveResults ? 'block' : 'none' }}>
+              {Object.values(exhaustiveSearchResults).every(arr => arr.length === 0) ? (
+                <div style={{ 
+                  textAlign: 'center', 
+                  color: 'var(--text-muted)', 
+                  padding: '32px',
+                  fontSize: '13px'
+                }}>
+                  {exhaustiveSearchRunning ? 'Searching...' : 'No exhaustive search results yet'}
+                </div>
+              ) : (
+                <div className="exhaustive-results">
+                  {/* Category Tabs */}
+                  <div className="exhaustive-tabs" style={{ 
+                    display: 'flex', 
+                    borderBottom: '1px solid var(--border)', 
+                    marginBottom: '12px',
+                    background: 'var(--background-secondary)'
+                  }}>
+                    <button 
+                      onClick={() => setExhaustiveActiveTab('relevant')}
+                      style={{
+                        padding: '8px 16px',
+                        background: exhaustiveActiveTab === 'relevant' ? 'var(--success-bg)' : 'transparent',
+                        color: exhaustiveActiveTab === 'relevant' ? 'var(--success-color)' : 'var(--text-secondary)',
+                        border: 'none',
+                        borderBottom: exhaustiveActiveTab === 'relevant' ? '2px solid var(--success-color)' : 'none',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        fontWeight: exhaustiveActiveTab === 'relevant' ? 'bold' : 'normal'
+                      }}
+                    >
+                      Relevant ({exhaustiveSearchResults.relevant.length})
+                    </button>
+                    <button 
+                      onClick={() => setExhaustiveActiveTab('nonRelevant')}
+                      style={{
+                        padding: '8px 16px',
+                        background: exhaustiveActiveTab === 'nonRelevant' ? 'var(--error-bg)' : 'transparent',
+                        color: exhaustiveActiveTab === 'nonRelevant' ? 'var(--error-color)' : 'var(--text-secondary)',
+                        border: 'none',
+                        borderBottom: exhaustiveActiveTab === 'nonRelevant' ? '2px solid var(--error-color)' : 'none',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        fontWeight: exhaustiveActiveTab === 'nonRelevant' ? 'bold' : 'normal'
+                      }}
+                    >
+                      Non-relevant ({exhaustiveSearchResults.nonRelevant.length})
+                    </button>
+                    <button 
+                      onClick={() => setExhaustiveActiveTab('uncertain')}
+                      style={{
+                        padding: '8px 16px',
+                        background: exhaustiveActiveTab === 'uncertain' ? 'var(--warning-bg)' : 'transparent',
+                        color: exhaustiveActiveTab === 'uncertain' ? 'var(--warning-color)' : 'var(--text-secondary)',
+                        border: 'none',
+                        borderBottom: exhaustiveActiveTab === 'uncertain' ? '2px solid var(--warning-color)' : 'none',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        fontWeight: exhaustiveActiveTab === 'uncertain' ? 'bold' : 'normal'
+                      }}
+                    >
+                      Uncertain ({exhaustiveSearchResults.uncertain.length})
+                    </button>
+                  </div>
+                  
+                  {/* Tab Content */}
+                  <div className="exhaustive-tab-content">
+                    {(() => {
+                      const currentResults = exhaustiveSearchResults[exhaustiveActiveTab] || []
+                      
+                      if (currentResults.length === 0) {
+                        return (
+                          <div style={{ 
+                            textAlign: 'center', 
+                            color: 'var(--text-muted)', 
+                            padding: '32px',
+                            fontSize: '13px'
+                          }}>
+                            No {exhaustiveActiveTab} results
+                          </div>
+                        )
+                      }
+                      
+                      // Group results by document
+                      const groupedResults = currentResults.reduce((acc, result) => {
+                        if (!acc[result.docId]) {
+                          acc[result.docId] = {
+                            path: result.path,
+                            hits: []
+                          }
+                        }
+                        acc[result.docId].hits.push(result)
+                        return acc
+                      }, {})
+                      
+                      return Object.entries(groupedResults).map(([docId, doc]) => (
+                        <div key={docId} className="result-item">
+                          <div className="result-header text-truncate" title={doc.path}>
+                            {doc.path.split(/[\\\\/]/).pop()}
+                          </div>
+                          {doc.hits.map((hit) => (
+                            <div key={`${hit.docId}::${hit.chunkId}`} className="result-hit">
+                              <div className="result-meta">
+                                페이지 {hit.page} {hit.reason && exhaustiveActiveTab === 'uncertain' && `• ${hit.reason}`}
+                              </div>
+                              <div 
+                                className="result-text"
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => openContext(hit.path, hit.page, hit.text)}
+                                title={hit.text}
+                              >
+                                {hit.text.length > 150 ? hit.text.substring(0, 150) + '...' : hit.text}
+                              </div>
+                              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                                <button 
+                                  className="result-button"
+                                  onClick={() => openContext(hit.path, hit.page, hit.text)}
+                                >
+                                  문서 보기
+                                </button>
+                                {exhaustiveActiveTab === 'uncertain' && (
+                                  <>
+                                    <button 
+                                      className="result-button"
+                                      onClick={() => classifyExhaustiveResult(`${hit.docId}::${hit.chunkId}`, 1)}
+                                      style={{ background: 'var(--success-bg)', color: 'var(--success-color)' }}
+                                    >
+                                      Relevant
+                                    </button>
+                                    <button 
+                                      className="result-button"
+                                      onClick={() => classifyExhaustiveResult(`${hit.docId}::${hit.chunkId}`, 2)}
+                                      style={{ background: 'var(--error-bg)', color: 'var(--error-color)' }}
+                                    >
+                                      Non-relevant
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ))
+                    })()}
+                  </div>
+                </div>
               )}
             </div>
           </div>
